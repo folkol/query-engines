@@ -2,3 +2,9 @@
 
 For comparison, the idea is to take some open sources ones and strip them down
 so that it is easier to understand how they work.
+
+## TODO
+
+- trino
+- spark
+- dremio?
