@@ -1,6 +1,5 @@
 import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.ArrowType
-import org.apache.arrow.vector.types.pojo.Schema
 
 object ArrowTypes {
     val BooleanType = ArrowType.Bool()
@@ -42,12 +41,49 @@ class LiteralValueVector(
     }
 }
 
+data class Field(val name: String, val dataType: ArrowType) {
+    fun toArrow(): org.apache.arrow.vector.types.pojo.Field {
+        val fieldType = org.apache.arrow.vector.types.pojo.FieldType(true, dataType, null)
+        return org.apache.arrow.vector.types.pojo.Field(name, fieldType, listOf())
+    }
+}
+
+data class Schema(val fields: List<Field>) {
+
+    fun toArrow(): org.apache.arrow.vector.types.pojo.Schema {
+        return org.apache.arrow.vector.types.pojo.Schema(fields.map { it.toArrow() })
+    }
+
+    fun project(indices: List<Int>): Schema {
+        return Schema(indices.map { fields[it] })
+    }
+
+    fun select(names: List<String>): Schema {
+        val f = mutableListOf<Field>()
+        names.forEach { name ->
+            val m = fields.filter { it.name == name }
+            if (m.size == 1) {
+                f.add(m[0])
+            } else {
+                throw IllegalArgumentException()
+            }
+        }
+        return Schema(f)
+    }
+}
+
+
 class RecordBatch(val schema: Schema, val fields: List<ColumnVector>) {
     fun rowCount() = fields.first().size()
     fun columnCount() = fields.size
     fun field(i: Int): ColumnVector {
         return fields[i]
     }
+}
+
+interface DataSource {
+    fun schema(): Schema
+    fun scan(projection: List<String>): Sequence<RecordBatch>
 }
 
 fun main() {
