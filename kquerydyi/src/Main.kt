@@ -154,6 +154,63 @@ abstract class BooleanBinaryExpr(
     }
 }
 
+class Eq(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("eq", "=", l, r)
+class Neq(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("neq", "!=", l, r)
+class Gt(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("gt", ">", l, r)
+class GtEq(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("gteq", ">=", l, r)
+class Lt(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("lt", "<", l, r)
+class LtEq(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("lteq", "<=", l, r)
+
+class And(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("and", "AND", l, r)
+class Or(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("or", "OR", l, r)
+
+abstract class MathExpr(
+    name: String,
+    op: String,
+    l: LogicalExpr,
+    r: LogicalExpr
+) : BooleanBinaryExpr(name, op, l, r) {
+    override fun toField(input: LogicalPlan): Field {
+        return Field("mult", l.toField(input).dataType)
+    }
+}
+
+class Add(l: LogicalExpr, r: LogicalExpr) : MathExpr("add", "+", l, r)
+class Subtract(l: LogicalExpr, r: LogicalExpr) : MathExpr("subtract", "-", l, r)
+class Multiply(l: LogicalExpr, r: LogicalExpr) : MathExpr("mult", "*", l, r)
+class Divide(l: LogicalExpr, r: LogicalExpr) : MathExpr("div", "/", l, r)
+class Modulus(l: LogicalExpr, r: LogicalExpr) : MathExpr("mod", "%", l, r)
+
+abstract class AggregateExpr(
+    val name: String,
+    val expr: LogicalExpr
+) : LogicalExpr {
+    override fun toField(input: LogicalPlan): Field {
+        return Field(name, expr.toField(input).dataType)
+    }
+
+    override fun toString(): String {
+        return "$name($expr)"
+    }
+}
+
+class Sum(input: LogicalExpr) : AggregateExpr("SUM", input)
+class Min(input: LogicalExpr) : AggregateExpr("MIN", input)
+class Max(input: LogicalExpr) : AggregateExpr("MAX", input)
+class Avg(input: LogicalExpr) : AggregateExpr("AVG", input)
+
+class Count(input: LogicalExpr) : AggregateExpr("COUNT", input) {
+    override fun toField(input: LogicalPlan): Field {
+        return Field("COUNT", ArrowTypes.Int32Type)
+    }
+
+    override fun toString(): String {
+        return "COUNT($expr)"
+    }
+}
+
+
+
 fun main() {
 
 }
