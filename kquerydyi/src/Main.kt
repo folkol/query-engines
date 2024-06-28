@@ -1,5 +1,3 @@
-import com.fasterxml.jackson.databind.DatabindException
-import com.sun.jdi.BooleanType
 import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.ArrowType
 import java.sql.SQLException
@@ -261,6 +259,41 @@ class Projection(
                 it.toString()
             }.joinToString(",")
         }"
+    }
+}
+
+class Selection(
+    val input: LogicalPlan,
+    val expr: LogicalExpr
+) : LogicalPlan {
+    override fun schema(): Schema {
+        return input.schema()
+    }
+
+    override fun children(): List<LogicalPlan> {
+        return listOf(input)
+    }
+
+    override fun toString(): String {
+        return "Filter: $expr"
+    }
+}
+
+class Aggregate(
+    val input: LogicalPlan,
+    val groupExpr: List<LogicalExpr>,
+    val aggExpr: List<AggregateExpr>
+) : LogicalPlan {
+    override fun schema(): Schema {
+        return Schema(groupExpr.map { it.toField(input) } + aggExpr.map { it.toField(input) })
+    }
+
+    override fun children(): List<LogicalPlan> {
+        return listOf(input)
+    }
+
+    override fun toString(): String {
+        return "Aggregate: groupExpr=$groupExpr, aggregateExpr=$aggExpr"
     }
 }
 
