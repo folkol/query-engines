@@ -141,6 +141,16 @@ class LiteralLong(val n: Long) : LogicalExpr {
     }
 }
 
+class LiteralDouble(val n: Double) : LogicalExpr {
+    override fun toField(input: LogicalPlan): Field {
+        return Field(n.toString(), ArrowTypes.DoubleType)
+    }
+
+    override fun toString(): String {
+        return n.toString()
+    }
+}
+
 abstract class BinaryExpr(
     val name: String, val op: String, val l: LogicalExpr, val r: LogicalExpr
 ) : LogicalExpr {
@@ -606,6 +616,55 @@ class ExecutionContext {
     /// fun parquet
 }
 
+// supported expression objects
+fun col(name: String) = Column(name)
+fun lit(value: String) = LiteralString(value)
+fun lit(value: Long) = LiteralLong(value)
+fun lit(value: Double) = LiteralDouble(value)
+
+infix fun LogicalExpr.eq(rhs: LogicalExpr): LogicalExpr {
+    return Eq(this, rhs)
+}
+
+infix fun LogicalExpr.neq(rhs: LogicalExpr): LogicalExpr {
+    return Neq(this, rhs)
+}
+
+infix fun LogicalExpr.gt(rhs: LogicalExpr): LogicalExpr {
+    return Gt(this, rhs)
+}
+
+infix fun LogicalExpr.gteq(rhs: LogicalExpr): LogicalExpr {
+    return GtEq(this, rhs)
+}
+
+infix fun LogicalExpr.lt(rhs: LogicalExpr): LogicalExpr {
+    return Lt(this, rhs)
+}
+
+infix fun LogicalExpr.lteq(rhs: LogicalExpr): LogicalExpr {
+    return LtEq(this, rhs)
+}
+
+infix fun LogicalExpr.mult(rhs: LogicalExpr): LogicalExpr {
+    return Multiply(this, rhs)
+}
+
+class Alias(val expr: LogicalExpr, val alias: String) : LogicalExpr {
+    override fun toField(input: LogicalPlan): Field {
+        return Field(alias, expr.toField(input).dataType)
+    }
+
+    override fun toString(): String {
+        return "$expr as $alias"
+    }
+}
+
+/** Convenience method to wrap the current expression in an alias using an infix operator */
+infix fun LogicalExpr.alias(alias: String): Alias {
+    return Alias(this, alias)
+}
+
 fun main() {
 
     // Here is some verbose code for building a plan for the query
@@ -638,18 +697,46 @@ fun main() {
 //        )
 //    )
 
+//    val ctx = ExecutionContext()
+//    val plan = ctx.csv("employee.csv")
+//        .filter(Eq(Column("state"), LiteralString("CO")))
+//        .project(
+//            listOf(
+//                Column("id"),
+//                Column("first_name"),
+//                Column("last_name"),
+//                Column("state"),
+//                Column("salary"),
+//            )
+//        )
+
+//    val ctx = ExecutionContext()
+//    val plan = ctx.csv("employee.csv")
+//        .filter(Eq(col("state"), lit("CO")))
+//        .project(
+//            listOf(
+//                col("id"),
+//                col("first_name"),
+//                col("last_name"),
+//                col("state"),
+//                col("salary"),
+//            )
+//        )
+
     val ctx = ExecutionContext()
     val plan = ctx.csv("employee.csv")
-        .filter(Eq(Column("state"), LiteralString("CO")))
+        .filter(col("state") eq lit("CO"))
         .project(
             listOf(
-                Column("id"),
-                Column("first_name"),
-                Column("last_name"),
-                Column("state"),
-                Column("salary"),
+                col("id"),
+                col("first_name"),
+                col("last_name"),
+                col("state"),
+                col("salary"),
+                (col("salary") mult lit(0.1) alias "bonus")
             )
         )
+        .filter(col("bonus") gt lit(1000))
 
     println(format(plan.logicalPlan()))
 }
