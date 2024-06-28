@@ -1,5 +1,7 @@
+import com.sun.jdi.BooleanType
 import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.ArrowType
+import java.sql.SQLException
 
 object ArrowTypes {
     val BooleanType = ArrowType.Bool()
@@ -97,6 +99,59 @@ fun format(plan: LogicalPlan, indent: Int = 0): String {
     b.append(plan.toString()).append('\n')
     plan.children().forEach() { b.append(format(it, indent + 1)) }
     return b.toString()
+}
+
+interface LogicalExpr {
+    fun toField(input: LogicalPlan): Field
+}
+
+class Column(val name: String) : LogicalExpr {
+    override fun toField(input: LogicalPlan): Field {
+        return input.schema().fields.find { it.name == name } ?: throw SQLException("No column named '$name'")
+    }
+
+    override fun toString(): String {
+        return "#$name"
+    }
+}
+
+class LiteralString(val str: String) : LogicalExpr {
+    override fun toField(input: LogicalPlan): Field {
+        return Field(str, ArrowTypes.StringType)
+    }
+
+    override fun toString(): String {
+        return "'$str'"
+    }
+}
+
+class LiteralLong(val n: Long) : LogicalExpr {
+    override fun toField(input: LogicalPlan): Field {
+        return Field(n.toString(), ArrowTypes.Int64Type)
+    }
+
+    override fun toString(): String {
+        return n.toString()
+    }
+}
+
+abstract class BinaryExpr(
+    val name: String, val op: String, val l: LogicalExpr, val r: LogicalExpr
+) : LogicalExpr {
+    override fun toString(): String {
+        return "$l $op $r"
+    }
+}
+
+abstract class BooleanBinaryExpr(
+    name: String,
+    op: String,
+    l: LogicalExpr,
+    r: LogicalExpr
+) : BinaryExpr(name, op, l, r) {
+    override fun toField(input: LogicalPlan): Field {
+        return Field(name, ArrowTypes.BooleanType)
+    }
 }
 
 fun main() {
