@@ -72,7 +72,6 @@ data class Schema(val fields: List<Field>) {
     }
 }
 
-
 class RecordBatch(val schema: Schema, val fields: List<ColumnVector>) {
     fun rowCount() = fields.first().size()
     fun columnCount() = fields.size
@@ -86,6 +85,20 @@ interface DataSource {
     fun scan(projection: List<String>): Sequence<RecordBatch>
 }
 
+// A relation with a known schema
+interface LogicalPlan {
+    fun schema(): Schema
+    fun children(): List<LogicalPlan>
+}
+
+fun format(plan: LogicalPlan, indent: Int = 0): String {
+    val b = StringBuilder()
+    0.rangeTo(indent).forEach { b.append('\t') }
+    b.append(plan.toString()).append('\n')
+    plan.children().forEach() { b.append(format(it, indent + 1)) }
+    return b.toString()
+}
+
 fun main() {
-    println("Lol")
+
 }
