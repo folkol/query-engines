@@ -1,5 +1,6 @@
 import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.ArrowType
+import org.apache.arrow.vector.types.pojo.Schema
 
 object ArrowTypes {
     val BooleanType = ArrowType.Bool()
@@ -20,6 +21,33 @@ interface ColumnVector {
     fun getType(): ArrowType
     fun getValue(i: Int): Any?
     fun size(): Int
+}
+
+class LiteralValueVector(
+    val arrowType: ArrowType, val value: Any?, val size: Int
+) : ColumnVector {
+    override fun getType(): ArrowType {
+        return arrowType
+    }
+
+    override fun getValue(i: Int): Any? {
+        if (i < 0 || i >= size) {
+            throw IndexOutOfBoundsException()
+        }
+        return value
+    }
+
+    override fun size(): Int {
+        return size
+    }
+}
+
+class RecordBatch(val schema: Schema, val fields: List<ColumnVector>) {
+    fun rowCount() = fields.first().size()
+    fun columnCount() = fields.size
+    fun field(i: Int): ColumnVector {
+        return fields[i]
+    }
 }
 
 fun main() {
