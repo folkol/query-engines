@@ -1,6 +1,13 @@
+import com.univocity.parsers.csv.CsvParser
+import com.univocity.parsers.csv.CsvParserSettings
+import org.apache.arrow.memory.RootAllocator
+import org.apache.arrow.vector.*
 import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.ArrowType
+import java.io.File
+import java.io.FileNotFoundException
 import java.sql.SQLException
+import java.util.logging.Logger
 
 object ArrowTypes {
     val BooleanType = ArrowType.Bool()
@@ -143,10 +150,7 @@ abstract class BinaryExpr(
 }
 
 abstract class BooleanBinaryExpr(
-    name: String,
-    op: String,
-    l: LogicalExpr,
-    r: LogicalExpr
+    name: String, op: String, l: LogicalExpr, r: LogicalExpr
 ) : BinaryExpr(name, op, l, r) {
     override fun toField(input: LogicalPlan): Field {
         return Field(name, ArrowTypes.BooleanType)
@@ -164,10 +168,7 @@ class And(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("and", "AND", l, r
 class Or(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("or", "OR", l, r)
 
 abstract class MathExpr(
-    name: String,
-    op: String,
-    l: LogicalExpr,
-    r: LogicalExpr
+    name: String, op: String, l: LogicalExpr, r: LogicalExpr
 ) : BooleanBinaryExpr(name, op, l, r) {
     override fun toField(input: LogicalPlan): Field {
         return Field("mult", l.toField(input).dataType)
@@ -181,8 +182,7 @@ class Divide(l: LogicalExpr, r: LogicalExpr) : MathExpr("div", "/", l, r)
 class Modulus(l: LogicalExpr, r: LogicalExpr) : MathExpr("mod", "%", l, r)
 
 abstract class AggregateExpr(
-    val name: String,
-    val expr: LogicalExpr
+    val name: String, val expr: LogicalExpr
 ) : LogicalExpr {
     override fun toField(input: LogicalPlan): Field {
         return Field(name, expr.toField(input).dataType)
@@ -209,9 +209,7 @@ class Count(input: LogicalExpr) : AggregateExpr("COUNT", input) {
 }
 
 class Scan(
-    val path: String,
-    val dataSource: DataSource,
-    val projection: List<String>
+    val path: String, val dataSource: DataSource, val projection: List<String>
 ) : LogicalPlan {
     val schema = deriveSchema()
 
@@ -242,8 +240,7 @@ class Scan(
 }
 
 class Projection(
-    val input: LogicalPlan,
-    val expr: List<LogicalExpr>
+    val input: LogicalPlan, val expr: List<LogicalExpr>
 ) : LogicalPlan {
     override fun schema(): Schema {
         return Schema(expr.map { it.toField(input) })
@@ -263,8 +260,7 @@ class Projection(
 }
 
 class Selection(
-    val input: LogicalPlan,
-    val expr: LogicalExpr
+    val input: LogicalPlan, val expr: LogicalExpr
 ) : LogicalPlan {
     override fun schema(): Schema {
         return input.schema()
@@ -280,9 +276,7 @@ class Selection(
 }
 
 class Aggregate(
-    val input: LogicalPlan,
-    val groupExpr: List<LogicalExpr>,
-    val aggExpr: List<AggregateExpr>
+    val input: LogicalPlan, val groupExpr: List<LogicalExpr>, val aggExpr: List<AggregateExpr>
 ) : LogicalPlan {
     override fun schema(): Schema {
         return Schema(groupExpr.map { it.toField(input) } + aggExpr.map { it.toField(input) })
@@ -297,8 +291,301 @@ class Aggregate(
     }
 }
 
+class ReaderAsSequence(
+    private val schema: Schema, private val parser: CsvParser, private val batchSize: Int
+) : Sequence<RecordBatch> {
+    override fun iterator(): Iterator<RecordBatch> {
+        return ReaderIterator(schema, parser, batchSize)
+    }
+}
+
+class ArrowFieldVector(val field: FieldVector) : ColumnVector {
+
+    override fun getType(): ArrowType {
+        return when (field) {
+            is BitVector -> ArrowTypes.BooleanType
+            is TinyIntVector -> ArrowTypes.Int8Type
+            is SmallIntVector -> ArrowTypes.Int16Type
+            is IntVector -> ArrowTypes.Int32Type
+            is BigIntVector -> ArrowTypes.Int64Type
+            is Float4Vector -> ArrowTypes.FloatType
+            is Float8Vector -> ArrowTypes.DoubleType
+            is VarCharVector -> ArrowTypes.StringType
+            else -> throw IllegalStateException()
+        }
+    }
+
+    override fun getValue(i: Int): Any? {
+
+        if (field.isNull(i)) {
+            return null
+        }
+
+        return when (field) {
+            is BitVector -> if (field.get(i) == 1) true else false
+            is TinyIntVector -> field.get(i)
+            is SmallIntVector -> field.get(i)
+            is IntVector -> field.get(i)
+            is BigIntVector -> field.get(i)
+            is Float4Vector -> field.get(i)
+            is Float8Vector -> field.get(i)
+            is VarCharVector -> {
+                val bytes = field.get(i)
+                if (bytes == null) {
+                    null
+                } else {
+                    String(bytes)
+                }
+            }
+
+            else -> throw IllegalStateException()
+        }
+    }
+
+    override fun size(): Int {
+        return field.valueCount
+    }
+}
+
+class ReaderIterator(
+    private val schema: Schema, private val parser: CsvParser, private val batchSize: Int
+) : Iterator<RecordBatch> {
+
+    private val logger = Logger.getLogger(CsvDataSource::class.simpleName)
+
+    private var next: RecordBatch? = null
+    private var started: Boolean = false
+
+    override fun hasNext(): Boolean {
+        if (!started) {
+            started = true
+
+            next = nextBatch()
+        }
+
+        return next != null
+    }
+
+    override fun next(): RecordBatch {
+        if (!started) {
+            hasNext()
+        }
+
+        val out = next
+
+        next = nextBatch()
+
+        if (out == null) {
+            throw NoSuchElementException(
+                "Cannot read past the end of ${ReaderIterator::class.simpleName}"
+            )
+        }
+
+        return out
+    }
+
+    private fun nextBatch(): RecordBatch? {
+        val rows = ArrayList<com.univocity.parsers.common.record.Record>(batchSize)
+
+        do {
+            val line = parser.parseNextRecord()
+            if (line != null) rows.add(line)
+        } while (line != null && rows.size < batchSize)
+
+        if (rows.isEmpty()) {
+            return null
+        }
+
+        return createBatch(rows)
+    }
+
+    private fun createBatch(rows: ArrayList<com.univocity.parsers.common.record.Record>): RecordBatch {
+        val root = VectorSchemaRoot.create(schema.toArrow(), RootAllocator(Long.MAX_VALUE))
+        root.fieldVectors.forEach { it.setInitialCapacity(rows.size) }
+        root.allocateNew()
+
+        root.fieldVectors.withIndex().forEach { field ->
+            val vector = field.value
+            when (vector) {
+                is VarCharVector ->
+                    rows.withIndex().forEach { row ->
+                        val valueStr = row.value.getValue(field.value.name, "").trim()
+                        vector.setSafe(row.index, valueStr.toByteArray())
+                    }
+
+                is TinyIntVector ->
+                    rows.withIndex().forEach { row ->
+                        val valueStr = row.value.getValue(field.value.name, "").trim()
+                        if (valueStr.isEmpty()) {
+                            vector.setNull(row.index)
+                        } else {
+                            vector.set(row.index, valueStr.toByte())
+                        }
+                    }
+
+                is SmallIntVector ->
+                    rows.withIndex().forEach { row ->
+                        val valueStr = row.value.getValue(field.value.name, "").trim()
+                        if (valueStr.isEmpty()) {
+                            vector.setNull(row.index)
+                        } else {
+                            vector.set(row.index, valueStr.toShort())
+                        }
+                    }
+
+                is IntVector ->
+                    rows.withIndex().forEach { row ->
+                        val valueStr = row.value.getValue(field.value.name, "").trim()
+                        if (valueStr.isEmpty()) {
+                            vector.setNull(row.index)
+                        } else {
+                            vector.set(row.index, valueStr.toInt())
+                        }
+                    }
+
+                is BigIntVector ->
+                    rows.withIndex().forEach { row ->
+                        val valueStr = row.value.getValue(field.value.name, "").trim()
+                        if (valueStr.isEmpty()) {
+                            vector.setNull(row.index)
+                        } else {
+                            vector.set(row.index, valueStr.toLong())
+                        }
+                    }
+
+                is Float4Vector ->
+                    rows.withIndex().forEach { row ->
+                        val valueStr = row.value.getValue(field.value.name, "").trim()
+                        if (valueStr.isEmpty()) {
+                            vector.setNull(row.index)
+                        } else {
+                            vector.set(row.index, valueStr.toFloat())
+                        }
+                    }
+
+                is Float8Vector ->
+                    rows.withIndex().forEach { row ->
+                        val valueStr = row.value.getValue(field.value.name, "")
+                        if (valueStr.isEmpty()) {
+                            vector.setNull(row.index)
+                        } else {
+                            vector.set(row.index, valueStr.toDouble())
+                        }
+                    }
+
+                else ->
+                    throw IllegalStateException("No support for reading CSV columns with data type $vector")
+            }
+            field.value.valueCount = rows.size
+        }
+
+        return RecordBatch(schema, root.fieldVectors.map { ArrowFieldVector(it) })
+    }
+}
+
+/**
+ * Simple CSV data source. If no schema is provided then it assumes that the first line contains
+ * field names and that all values are strings.
+ */
+class CsvDataSource(
+    val filename: String,
+    private val hasHeaders: Boolean,
+    private val batchSize: Int,
+    val schema: Schema?,
+) : DataSource {
+
+    private val logger = Logger.getLogger(CsvDataSource::class.simpleName)
+
+    private val finalSchema: Schema by lazy { schema ?: inferSchema() }
+
+    private fun buildParser(settings: CsvParserSettings): CsvParser {
+        return CsvParser(settings)
+    }
+
+    private fun defaultSettings(): CsvParserSettings {
+        return CsvParserSettings().apply {
+            isDelimiterDetectionEnabled = true
+            isLineSeparatorDetectionEnabled = true
+            skipEmptyLines = true
+            isAutoClosingEnabled = true
+        }
+    }
+
+    override fun schema(): Schema {
+        return finalSchema
+    }
+
+    override fun scan(projection: List<String>): Sequence<RecordBatch> {
+        logger.fine("scan() projection=$projection")
+
+        val file = File(filename)
+        if (!file.exists()) {
+            throw FileNotFoundException(file.absolutePath)
+        }
+
+        val readSchema =
+            if (projection.isNotEmpty()) {
+                finalSchema.select(projection)
+            } else {
+                finalSchema
+            }
+
+        val settings = defaultSettings()
+        if (projection.isNotEmpty()) {
+            settings.selectFields(*projection.toTypedArray())
+        }
+        settings.isHeaderExtractionEnabled = hasHeaders
+        if (!hasHeaders) {
+            settings.setHeaders(*readSchema.fields.map { it.name }.toTypedArray())
+        }
+
+        val parser = buildParser(settings)
+        // parser will close once the end of the reader is reached
+        parser.beginParsing(file.inputStream().reader())
+        parser.detectedFormat
+
+        return ReaderAsSequence(readSchema, parser, batchSize)
+    }
+
+    private fun inferSchema(): Schema {
+        logger.fine("inferSchema()")
+
+        val file = File(filename)
+        if (!file.exists()) {
+            throw FileNotFoundException(file.absolutePath)
+        }
+
+        val parser = buildParser(defaultSettings())
+        return file.inputStream().use {
+            parser.beginParsing(it.reader())
+            parser.detectedFormat
+
+            parser.parseNext()
+            // some delimiters cause sparse arrays, so remove null columns in the parsed header
+            val headers = parser.context.parsedHeaders().filterNotNull()
+
+            val schema =
+                if (hasHeaders) {
+                    Schema(headers.map { colName -> Field(colName, ArrowTypes.StringType) })
+                } else {
+                    Schema(headers.mapIndexed { i, _ -> Field("field_${i + 1}", ArrowTypes.StringType) })
+                }
+
+            parser.stopParsing()
+            schema
+        }
+    }
+}
 
 
 fun main() {
+
+    // Here is some verbose code for building a plan for the query
+    // SELECT * FROM employee WHERE state = 'CO'
+    // against a CSV file containing the columns
+    // id, first_name, last_name, state, job_title, salary
+    val csv = CsvDataSource("employee.csv", true, 10, null)
+
+
 
 }
