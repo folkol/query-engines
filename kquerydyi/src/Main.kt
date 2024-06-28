@@ -407,74 +407,66 @@ class ReaderIterator(
         root.fieldVectors.withIndex().forEach { field ->
             val vector = field.value
             when (vector) {
-                is VarCharVector ->
-                    rows.withIndex().forEach { row ->
-                        val valueStr = row.value.getValue(field.value.name, "").trim()
-                        vector.setSafe(row.index, valueStr.toByteArray())
-                    }
+                is VarCharVector -> rows.withIndex().forEach { row ->
+                    val valueStr = row.value.getValue(field.value.name, "").trim()
+                    vector.setSafe(row.index, valueStr.toByteArray())
+                }
 
-                is TinyIntVector ->
-                    rows.withIndex().forEach { row ->
-                        val valueStr = row.value.getValue(field.value.name, "").trim()
-                        if (valueStr.isEmpty()) {
-                            vector.setNull(row.index)
-                        } else {
-                            vector.set(row.index, valueStr.toByte())
-                        }
+                is TinyIntVector -> rows.withIndex().forEach { row ->
+                    val valueStr = row.value.getValue(field.value.name, "").trim()
+                    if (valueStr.isEmpty()) {
+                        vector.setNull(row.index)
+                    } else {
+                        vector.set(row.index, valueStr.toByte())
                     }
+                }
 
-                is SmallIntVector ->
-                    rows.withIndex().forEach { row ->
-                        val valueStr = row.value.getValue(field.value.name, "").trim()
-                        if (valueStr.isEmpty()) {
-                            vector.setNull(row.index)
-                        } else {
-                            vector.set(row.index, valueStr.toShort())
-                        }
+                is SmallIntVector -> rows.withIndex().forEach { row ->
+                    val valueStr = row.value.getValue(field.value.name, "").trim()
+                    if (valueStr.isEmpty()) {
+                        vector.setNull(row.index)
+                    } else {
+                        vector.set(row.index, valueStr.toShort())
                     }
+                }
 
-                is IntVector ->
-                    rows.withIndex().forEach { row ->
-                        val valueStr = row.value.getValue(field.value.name, "").trim()
-                        if (valueStr.isEmpty()) {
-                            vector.setNull(row.index)
-                        } else {
-                            vector.set(row.index, valueStr.toInt())
-                        }
+                is IntVector -> rows.withIndex().forEach { row ->
+                    val valueStr = row.value.getValue(field.value.name, "").trim()
+                    if (valueStr.isEmpty()) {
+                        vector.setNull(row.index)
+                    } else {
+                        vector.set(row.index, valueStr.toInt())
                     }
+                }
 
-                is BigIntVector ->
-                    rows.withIndex().forEach { row ->
-                        val valueStr = row.value.getValue(field.value.name, "").trim()
-                        if (valueStr.isEmpty()) {
-                            vector.setNull(row.index)
-                        } else {
-                            vector.set(row.index, valueStr.toLong())
-                        }
+                is BigIntVector -> rows.withIndex().forEach { row ->
+                    val valueStr = row.value.getValue(field.value.name, "").trim()
+                    if (valueStr.isEmpty()) {
+                        vector.setNull(row.index)
+                    } else {
+                        vector.set(row.index, valueStr.toLong())
                     }
+                }
 
-                is Float4Vector ->
-                    rows.withIndex().forEach { row ->
-                        val valueStr = row.value.getValue(field.value.name, "").trim()
-                        if (valueStr.isEmpty()) {
-                            vector.setNull(row.index)
-                        } else {
-                            vector.set(row.index, valueStr.toFloat())
-                        }
+                is Float4Vector -> rows.withIndex().forEach { row ->
+                    val valueStr = row.value.getValue(field.value.name, "").trim()
+                    if (valueStr.isEmpty()) {
+                        vector.setNull(row.index)
+                    } else {
+                        vector.set(row.index, valueStr.toFloat())
                     }
+                }
 
-                is Float8Vector ->
-                    rows.withIndex().forEach { row ->
-                        val valueStr = row.value.getValue(field.value.name, "")
-                        if (valueStr.isEmpty()) {
-                            vector.setNull(row.index)
-                        } else {
-                            vector.set(row.index, valueStr.toDouble())
-                        }
+                is Float8Vector -> rows.withIndex().forEach { row ->
+                    val valueStr = row.value.getValue(field.value.name, "")
+                    if (valueStr.isEmpty()) {
+                        vector.setNull(row.index)
+                    } else {
+                        vector.set(row.index, valueStr.toDouble())
                     }
+                }
 
-                else ->
-                    throw IllegalStateException("No support for reading CSV columns with data type $vector")
+                else -> throw IllegalStateException("No support for reading CSV columns with data type $vector")
             }
             field.value.valueCount = rows.size
         }
@@ -523,12 +515,11 @@ class CsvDataSource(
             throw FileNotFoundException(file.absolutePath)
         }
 
-        val readSchema =
-            if (projection.isNotEmpty()) {
-                finalSchema.select(projection)
-            } else {
-                finalSchema
-            }
+        val readSchema = if (projection.isNotEmpty()) {
+            finalSchema.select(projection)
+        } else {
+            finalSchema
+        }
 
         val settings = defaultSettings()
         if (projection.isNotEmpty()) {
@@ -564,12 +555,11 @@ class CsvDataSource(
             // some delimiters cause sparse arrays, so remove null columns in the parsed header
             val headers = parser.context.parsedHeaders().filterNotNull()
 
-            val schema =
-                if (hasHeaders) {
-                    Schema(headers.map { colName -> Field(colName, ArrowTypes.StringType) })
-                } else {
-                    Schema(headers.mapIndexed { i, _ -> Field("field_${i + 1}", ArrowTypes.StringType) })
-                }
+            val schema = if (hasHeaders) {
+                Schema(headers.map { colName -> Field(colName, ArrowTypes.StringType) })
+            } else {
+                Schema(headers.mapIndexed { i, _ -> Field("field_${i + 1}", ArrowTypes.StringType) })
+            }
 
             parser.stopParsing()
             schema
@@ -577,6 +567,44 @@ class CsvDataSource(
     }
 }
 
+interface DataFrame {
+    fun project(expr: List<LogicalExpr>): DataFrame
+    fun filter(expr: LogicalExpr): DataFrame
+    fun aggregate(groupBy: List<LogicalExpr>, aggregateExpr: List<AggregateExpr>): DataFrame
+    fun schema(): Schema
+    fun logicalPlan(): LogicalPlan
+}
+
+class DataFrameImpl(private val plan: LogicalPlan) : DataFrame {
+    override fun project(expr: List<LogicalExpr>): DataFrame {
+        return DataFrameImpl(Projection(plan, expr))
+    }
+
+    override fun filter(expr: LogicalExpr): DataFrame {
+        return DataFrameImpl(Selection(plan, expr))
+    }
+
+    override fun aggregate(groupBy: List<LogicalExpr>, aggregateExpr: List<AggregateExpr>): DataFrame {
+        return DataFrameImpl(Aggregate(plan, groupBy, aggregateExpr))
+
+    }
+
+    override fun schema(): Schema {
+        return plan.schema();
+    }
+
+    override fun logicalPlan(): LogicalPlan {
+        return plan
+    }
+}
+
+class ExecutionContext {
+    fun csv(filename: String): DataFrame {
+        return DataFrameImpl(Scan(filename, CsvDataSource(filename, true, 10, null), listOf()))
+    }
+
+    /// fun parquet
+}
 
 fun main() {
 
@@ -584,18 +612,44 @@ fun main() {
     // SELECT * FROM employee WHERE state = 'CO'
     // against a CSV file containing the columns
     // id, first_name, last_name, state, job_title, salary
-    val csv = CsvDataSource("employee.csv", true, 10, null)
-    val scan = Scan("employee", csv, listOf())
-    val filterExpr = Eq(Column("state"), LiteralString("CO"))
-    val selection = Selection(scan, filterExpr)
-    val projectionList = listOf(
-        Column("id"),
-        Column("first_name"),
-        Column("last_name"),
-        Column("state"),
-        Column("salary"),
-    )
-    val plan = Projection(selection, projectionList)
+//    val csv = CsvDataSource("employee.csv", true, 10, null)
+//    val scan = Scan("employee", csv, listOf())
+//    val filterExpr = Eq(Column("state"), LiteralString("CO"))
+//    val selection = Selection(scan, filterExpr)
+//    val projectionList = listOf(
+//        Column("id"),
+//        Column("first_name"),
+//        Column("last_name"),
+//        Column("state"),
+//        Column("salary"),
+//    )
+//    val plan = Projection(selection, projectionList)
 
-    println(format(plan))
+//    val plan = Projection(
+//        Selection(
+//            Scan("employee", CsvDataSource("employee.csv", true, 10, null), listOf()),
+//            Eq(Column("state"), LiteralString("CO"))
+//        ), listOf(
+//            Column("id"),
+//            Column("first_name"),
+//            Column("last_name"),
+//            Column("state"),
+//            Column("salary"),
+//        )
+//    )
+
+    val ctx = ExecutionContext()
+    val plan = ctx.csv("employee.csv")
+        .filter(Eq(Column("state"), LiteralString("CO")))
+        .project(
+            listOf(
+                Column("id"),
+                Column("first_name"),
+                Column("last_name"),
+                Column("state"),
+                Column("salary"),
+            )
+        )
+
+    println(format(plan.logicalPlan()))
 }
