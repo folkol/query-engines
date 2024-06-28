@@ -9,6 +9,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.sql.SQLException
 import java.util.logging.Logger
+import javax.swing.plaf.basic.BasicInternalFrameTitlePane.MaximizeAction
 
 object ArrowTypes {
     val BooleanType = ArrowType.Bool()
@@ -710,6 +711,265 @@ class LiteralStringExpression(val value: String) : Expression {
             ArrowTypes.StringType,
             value, input.rowCount()
         )
+    }
+}
+
+abstract class BinaryExpression(val l: Expression, val r: Expression) : Expression {
+    override fun evaluate(input: RecordBatch): ColumnVector {
+        val ll = l.evaluate(input)
+        val rr = r.evaluate(input)
+        assert(ll.size() == rr.size())
+        if (ll.getType() != rr.getType()) {
+            throw IllegalStateException(
+                "Binary expression operands do not have the same type: " +
+                        "${ll.getType()} != ${rr.getType()}"
+            )
+        }
+        return evaluate(ll, rr)
+    }
+
+    abstract fun evaluate(l: ColumnVector, r: ColumnVector): ColumnVector
+}
+
+abstract class BooleanExpression(val l: Expression, val r: Expression) : Expression {
+
+    override fun evaluate(input: RecordBatch): ColumnVector {
+        val ll = l.evaluate(input)
+        val rr = r.evaluate(input)
+        assert(ll.size() == rr.size())
+        if (ll.getType() != rr.getType()) {
+            throw IllegalStateException(
+                "Cannot compare values of different type: ${ll.getType()} != ${rr.getType()}")
+        }
+        return compare(ll, rr)
+    }
+
+    fun compare(l: ColumnVector, r: ColumnVector): ColumnVector {
+        val v = BitVector("v", RootAllocator(Long.MAX_VALUE))
+        v.allocateNew()
+        (0 until l.size()).forEach {
+            val value = evaluate(l.getValue(it), r.getValue(it), l.getType())
+            v.set(it, if (value) 1 else 0)
+        }
+        v.valueCount = l.size()
+        return ArrowFieldVector(v)
+    }
+
+    abstract fun evaluate(l: Any?, r: Any?, arrowType: ArrowType): Boolean
+}
+
+class EqExpression(l: Expression, r: Expression) : BooleanExpression(l, r) {
+    override fun evaluate(l: Any?, r: Any?, arrowType: ArrowType): Boolean {
+        return when (arrowType) {
+            ArrowTypes.Int8Type -> (l as Byte) == (r as Byte)
+            ArrowTypes.Int16Type -> (l as Short) == (r as Short)
+            ArrowTypes.Int32Type -> (l as Int) == (r as Int)
+            ArrowTypes.Int64Type -> (l as Long) == (r as Long)
+            ArrowTypes.FloatType -> (l as Float) == (r as Float)
+            ArrowTypes.DoubleType -> (l as Double) == (r as Double)
+            ArrowTypes.StringType -> l.toString() == r.toString()
+            else -> throw IllegalStateException(
+                "Unsupported data type in comparison expression: $arrowType"
+            )
+        }
+    }
+}
+
+object FieldVectorFactory {
+
+    fun create(arrowType: ArrowType, initialCapacity: Int): FieldVector {
+        val rootAllocator = RootAllocator(Long.MAX_VALUE)
+        val fieldVector: FieldVector =
+            when (arrowType) {
+                ArrowTypes.BooleanType -> BitVector("v", rootAllocator)
+                ArrowTypes.Int8Type -> TinyIntVector("v", rootAllocator)
+                ArrowTypes.Int16Type -> SmallIntVector("v", rootAllocator)
+                ArrowTypes.Int32Type -> IntVector("v", rootAllocator)
+                ArrowTypes.Int64Type -> BigIntVector("v", rootAllocator)
+                ArrowTypes.FloatType -> Float4Vector("v", rootAllocator)
+                ArrowTypes.DoubleType -> Float8Vector("v", rootAllocator)
+                ArrowTypes.StringType -> VarCharVector("v", rootAllocator)
+                else -> throw IllegalStateException()
+            }
+        if (initialCapacity != 0) {
+            fieldVector.setInitialCapacity(initialCapacity)
+        }
+        fieldVector.allocateNew()
+        return fieldVector
+    }
+}
+
+class ArrowVectorBuilder(val fieldVector: FieldVector) {
+
+    fun set(i: Int, value: Any?) {
+        when (fieldVector) {
+            is VarCharVector -> {
+                if (value == null) {
+                    fieldVector.setNull(i)
+                } else if (value is ByteArray) {
+                    fieldVector.set(i, value)
+                } else {
+                    fieldVector.set(i, value.toString().toByteArray())
+                }
+            }
+            is TinyIntVector -> {
+                if (value == null) {
+                    fieldVector.setNull(i)
+                } else if (value is Number) {
+                    fieldVector.set(i, value.toByte())
+                } else if (value is String) {
+                    fieldVector.set(i, value.toByte())
+                } else {
+                    throw IllegalStateException()
+                }
+            }
+            is SmallIntVector -> {
+                if (value == null) {
+                    fieldVector.setNull(i)
+                } else if (value is Number) {
+                    fieldVector.set(i, value.toShort())
+                } else if (value is String) {
+                    fieldVector.set(i, value.toShort())
+                } else {
+                    throw IllegalStateException()
+                }
+            }
+            is IntVector -> {
+                if (value == null) {
+                    fieldVector.setNull(i)
+                } else if (value is Number) {
+                    fieldVector.set(i, value.toInt())
+                } else if (value is String) {
+                    fieldVector.set(i, value.toInt())
+                } else {
+                    throw IllegalStateException()
+                }
+            }
+            is BigIntVector -> {
+                if (value == null) {
+                    fieldVector.setNull(i)
+                } else if (value is Number) {
+                    fieldVector.set(i, value.toLong())
+                } else if (value is String) {
+                    fieldVector.set(i, value.toLong())
+                } else {
+                    throw IllegalStateException()
+                }
+            }
+            is Float4Vector -> {
+                if (value == null) {
+                    fieldVector.setNull(i)
+                } else if (value is Number) {
+                    fieldVector.set(i, value.toFloat())
+                } else if (value is String) {
+                    fieldVector.set(i, value.toFloat())
+                } else {
+                    throw IllegalStateException()
+                }
+            }
+            is Float8Vector -> {
+                if (value == null) {
+                    fieldVector.setNull(i)
+                } else if (value is Number) {
+                    fieldVector.set(i, value.toDouble())
+                } else if (value is String) {
+                    fieldVector.set(i, value.toDouble())
+                } else {
+                    throw IllegalStateException()
+                }
+            }
+            else -> throw IllegalStateException(fieldVector.javaClass.name)
+        }
+    }
+
+    fun setValueCount(n: Int) {
+        fieldVector.valueCount = n
+    }
+
+    fun build(): ColumnVector {
+        return ArrowFieldVector(fieldVector)
+    }
+}
+
+abstract class MathExpression(l: Expression, r: Expression) : BinaryExpression(l, r) {
+    override fun evaluate(l: ColumnVector, r: ColumnVector): ColumnVector {
+        val fieldVector = FieldVectorFactory.create(l.getType(), l.size())
+        val builder = ArrowVectorBuilder(fieldVector)
+        (0 until l.size()).forEach {
+            val value = evaluate(l.getValue(it), r.getValue(it), l.getType())
+            builder.set(it, value)
+        }
+        builder.setValueCount(l.size())
+        return builder.build()
+    }
+
+    abstract fun evaluate(l: Any?, r: Any?, arrowType: ArrowType): Any?
+}
+
+class AddExpression(l: Expression, r: Expression) : MathExpression(l, r) {
+    override fun evaluate(l: Any?, r: Any?, arrowType: ArrowType): Any {
+        return when (arrowType) {
+            ArrowTypes.Int8Type -> (l as Byte) + (r as Byte)
+            ArrowTypes.Int16Type -> (l as Short) + (r as Short)
+            ArrowTypes.Int32Type -> (l as Int) + (r as Int)
+            ArrowTypes.Int64Type -> (l as Long) + (r as Long)
+            ArrowTypes.FloatType -> (l as Float) + (r as Float)
+            ArrowTypes.DoubleType -> (l as Double) + (r as Double)
+            else -> throw IllegalStateException("Unsupported data type in math expression: $arrowType")
+        }
+    }
+
+    override fun toString(): String {
+        return "$l + $r"
+    }
+}
+
+interface AggregateExpression {
+    fun inputExpression(): Expression
+    fun createAccumulator(): Accumulator
+}
+
+interface Accumulator {
+    fun accumulate(value: Any?)
+    fun finalValue(): Any?
+}
+
+class MaxExpression(val expr: Expression) : AggregateExpression {
+    override fun inputExpression(): Expression {
+        return expr
+    }
+
+    override fun createAccumulator(): Accumulator {
+        return MaxAccumulator()
+    }
+
+    override fun toString(): String {
+        return "MAX($expr)"
+    }
+}
+
+class MaxAccumulator : Accumulator {
+    var value: Any? = null
+    override fun accumulate(value: Any?) {
+        if (value != null) {
+            if (this.value == null) {
+                this.value = value
+            } else {
+                val isMax = when (value) {
+                    is Byte -> value > this.value as Byte
+                    else -> throw UnsupportedOperationException(
+                        "MAX is not implemented for data type ${value.javaClass.name}"
+                    )
+                }
+                if (isMax) {
+                    this.value = value
+                }
+            }
+        }
+    }
+
+    override fun finalValue(): Any? {
+        return value
     }
 }
 
