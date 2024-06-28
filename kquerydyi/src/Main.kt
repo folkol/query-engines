@@ -1,4 +1,3 @@
-import com.fasterxml.jackson.databind.introspect.DefaultAccessorNamingStrategy.FirstCharBasedValidator
 import com.univocity.parsers.csv.CsvParser
 import com.univocity.parsers.csv.CsvParserSettings
 import org.apache.arrow.memory.RootAllocator
@@ -9,7 +8,6 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.sql.SQLException
 import java.util.logging.Logger
-import javax.swing.plaf.basic.BasicInternalFrameTitlePane.MaximizeAction
 
 object ArrowTypes {
     val BooleanType = ArrowType.Bool()
@@ -690,8 +688,7 @@ class ColumnExpression(val i: Int) : Expression {
 class LiteralLongExpression(val value: Long) : Expression {
     override fun evaluate(input: RecordBatch): ColumnVector {
         return LiteralValueVector(
-            ArrowTypes.Int64Type,
-            value, input.rowCount()
+            ArrowTypes.Int64Type, value, input.rowCount()
         )
     }
 }
@@ -699,8 +696,7 @@ class LiteralLongExpression(val value: Long) : Expression {
 class LiteralDoubleExpression(val value: Double) : Expression {
     override fun evaluate(input: RecordBatch): ColumnVector {
         return LiteralValueVector(
-            ArrowTypes.DoubleType,
-            value, input.rowCount()
+            ArrowTypes.DoubleType, value, input.rowCount()
         )
     }
 }
@@ -708,8 +704,7 @@ class LiteralDoubleExpression(val value: Double) : Expression {
 class LiteralStringExpression(val value: String) : Expression {
     override fun evaluate(input: RecordBatch): ColumnVector {
         return LiteralValueVector(
-            ArrowTypes.StringType,
-            value, input.rowCount()
+            ArrowTypes.StringType, value, input.rowCount()
         )
     }
 }
@@ -721,8 +716,7 @@ abstract class BinaryExpression(val l: Expression, val r: Expression) : Expressi
         assert(ll.size() == rr.size())
         if (ll.getType() != rr.getType()) {
             throw IllegalStateException(
-                "Binary expression operands do not have the same type: " +
-                        "${ll.getType()} != ${rr.getType()}"
+                "Binary expression operands do not have the same type: " + "${ll.getType()} != ${rr.getType()}"
             )
         }
         return evaluate(ll, rr)
@@ -739,7 +733,8 @@ abstract class BooleanExpression(val l: Expression, val r: Expression) : Express
         assert(ll.size() == rr.size())
         if (ll.getType() != rr.getType()) {
             throw IllegalStateException(
-                "Cannot compare values of different type: ${ll.getType()} != ${rr.getType()}")
+                "Cannot compare values of different type: ${ll.getType()} != ${rr.getType()}"
+            )
         }
         return compare(ll, rr)
     }
@@ -779,18 +774,17 @@ object FieldVectorFactory {
 
     fun create(arrowType: ArrowType, initialCapacity: Int): FieldVector {
         val rootAllocator = RootAllocator(Long.MAX_VALUE)
-        val fieldVector: FieldVector =
-            when (arrowType) {
-                ArrowTypes.BooleanType -> BitVector("v", rootAllocator)
-                ArrowTypes.Int8Type -> TinyIntVector("v", rootAllocator)
-                ArrowTypes.Int16Type -> SmallIntVector("v", rootAllocator)
-                ArrowTypes.Int32Type -> IntVector("v", rootAllocator)
-                ArrowTypes.Int64Type -> BigIntVector("v", rootAllocator)
-                ArrowTypes.FloatType -> Float4Vector("v", rootAllocator)
-                ArrowTypes.DoubleType -> Float8Vector("v", rootAllocator)
-                ArrowTypes.StringType -> VarCharVector("v", rootAllocator)
-                else -> throw IllegalStateException()
-            }
+        val fieldVector: FieldVector = when (arrowType) {
+            ArrowTypes.BooleanType -> BitVector("v", rootAllocator)
+            ArrowTypes.Int8Type -> TinyIntVector("v", rootAllocator)
+            ArrowTypes.Int16Type -> SmallIntVector("v", rootAllocator)
+            ArrowTypes.Int32Type -> IntVector("v", rootAllocator)
+            ArrowTypes.Int64Type -> BigIntVector("v", rootAllocator)
+            ArrowTypes.FloatType -> Float4Vector("v", rootAllocator)
+            ArrowTypes.DoubleType -> Float8Vector("v", rootAllocator)
+            ArrowTypes.StringType -> VarCharVector("v", rootAllocator)
+            else -> throw IllegalStateException()
+        }
         if (initialCapacity != 0) {
             fieldVector.setInitialCapacity(initialCapacity)
         }
@@ -812,6 +806,7 @@ class ArrowVectorBuilder(val fieldVector: FieldVector) {
                     fieldVector.set(i, value.toString().toByteArray())
                 }
             }
+
             is TinyIntVector -> {
                 if (value == null) {
                     fieldVector.setNull(i)
@@ -823,6 +818,7 @@ class ArrowVectorBuilder(val fieldVector: FieldVector) {
                     throw IllegalStateException()
                 }
             }
+
             is SmallIntVector -> {
                 if (value == null) {
                     fieldVector.setNull(i)
@@ -834,6 +830,7 @@ class ArrowVectorBuilder(val fieldVector: FieldVector) {
                     throw IllegalStateException()
                 }
             }
+
             is IntVector -> {
                 if (value == null) {
                     fieldVector.setNull(i)
@@ -845,6 +842,7 @@ class ArrowVectorBuilder(val fieldVector: FieldVector) {
                     throw IllegalStateException()
                 }
             }
+
             is BigIntVector -> {
                 if (value == null) {
                     fieldVector.setNull(i)
@@ -856,6 +854,7 @@ class ArrowVectorBuilder(val fieldVector: FieldVector) {
                     throw IllegalStateException()
                 }
             }
+
             is Float4Vector -> {
                 if (value == null) {
                     fieldVector.setNull(i)
@@ -867,6 +866,7 @@ class ArrowVectorBuilder(val fieldVector: FieldVector) {
                     throw IllegalStateException()
                 }
             }
+
             is Float8Vector -> {
                 if (value == null) {
                     fieldVector.setNull(i)
@@ -878,6 +878,7 @@ class ArrowVectorBuilder(val fieldVector: FieldVector) {
                     throw IllegalStateException()
                 }
             }
+
             else -> throw IllegalStateException(fieldVector.javaClass.name)
         }
     }
@@ -970,6 +971,157 @@ class MaxAccumulator : Accumulator {
 
     override fun finalValue(): Any? {
         return value
+    }
+}
+
+class ScanExec(val ds: DataSource, val projection: List<String>) : PhysicalPlan {
+    override fun schema(): Schema {
+        return ds.schema().select(projection)
+    }
+
+    override fun execute(): Sequence<RecordBatch> {
+        return ds.scan(projection)
+    }
+
+    override fun children(): List<PhysicalPlan> {
+        return listOf()
+    }
+
+    override fun toString(): String {
+        return "ScanExec: schema=${schema()}, projection=$projection"
+    }
+}
+
+class ProjectionExec(
+    val input: PhysicalPlan, val schema: Schema, val expr: List<Expression>
+) : PhysicalPlan {
+    override fun schema(): Schema {
+        return schema
+    }
+
+    override fun execute(): Sequence<RecordBatch> {
+        return input.execute().map { batch ->
+            val columns = expr.map { it.evaluate(batch) }
+            RecordBatch(schema, columns)
+        }
+    }
+
+    override fun children(): List<PhysicalPlan> {
+        return listOf(input)
+    }
+
+    override fun toString(): String {
+        return "ProjectionExec: $expr"
+    }
+}
+
+class SelectionExec(
+    val input: PhysicalPlan, val expr: Expression
+) : PhysicalPlan {
+    override fun schema(): Schema {
+        return input.schema()
+    }
+
+    override fun execute(): Sequence<RecordBatch> {
+        val input = input.execute();
+        return input.map { batch ->
+            val result = (expr.evaluate(batch) as ArrowFieldVector).field as BitVector
+            val schema = batch.schema
+            val columnCount = batch.schema.fields.size
+            val filteredFields = (0 until columnCount).map {
+                filter(batch.field(it), result)
+            }
+            val fields = filteredFields.map { ArrowFieldVector(it) }
+            RecordBatch(schema, fields)
+        }
+    }
+
+    override fun children(): List<PhysicalPlan> {
+        return listOf(input)
+    }
+
+    private fun filter(v: ColumnVector, selection: BitVector): FieldVector {
+        val filteredVector = VarCharVector("v", RootAllocator(Long.MAX_VALUE))
+        filteredVector.allocateNew()
+        val builder = ArrowVectorBuilder(filteredVector)
+        var count = 0
+        (0 until selection.valueCount).forEach {
+            if (selection.get(it) == 1) {
+                builder.set(count, v.getValue(it))
+                count++
+            }
+        }
+        filteredVector.valueCount = count
+        return filteredVector
+    }
+
+    override fun toString(): String {
+        return "SelectionExec: $expr"
+    }
+}
+
+interface PhysicalAggregateExpression {
+    fun inputExpression(): Expression
+    fun createAccumulator(): Accumulator
+}
+
+class HashAggregateExec(
+    val input: PhysicalPlan,
+    val groupExpr: List<Expression>,
+    val aggregateExpr: List<PhysicalAggregateExpression>,
+    val schema: Schema
+) : PhysicalPlan {
+    override fun schema(): Schema {
+        return schema
+    }
+
+    override fun execute(): Sequence<RecordBatch> {
+        val map = HashMap<List<Any?>, List<Accumulator>>()
+        input.execute().iterator().forEach { batch ->
+            val groupKeys = groupExpr.map { it.evaluate(batch) }
+            val aggrInputValues = aggregateExpr.map { it.inputExpression().evaluate(batch) }
+            (0 until batch.rowCount()).forEach { rowIndex ->
+                val rowKey = groupKeys.map {
+                    val value = it.getValue(rowIndex)
+                    when (value) {
+                        is ByteArray -> String(value)
+                        else -> value
+                    }
+                }
+                // print(rowKey)
+                val accumulators = map.getOrPut(rowKey) { aggregateExpr.map { it.createAccumulator() } }
+                accumulators.withIndex().forEach { accum ->
+                    val value = aggrInputValues[accum.index].getValue(rowIndex)
+                    accum.value.accumulate(value)
+                }
+            }
+
+        }
+        val root = VectorSchemaRoot.create(schema.toArrow(), RootAllocator(Long.MAX_VALUE))
+        root.allocateNew()
+        root.rowCount = map.size
+        val builders = root.fieldVectors.map { ArrowVectorBuilder(it) }
+        map.entries.withIndex().forEach { entry ->
+            val rowIndex = entry.index
+            val groupingKey = entry.value.key
+            val accumulators = entry.value.value
+            groupExpr.indices.forEach { builders[it].set(rowIndex, groupingKey[it]) }
+            aggregateExpr.indices.forEach {
+                builders[groupExpr.size + it].set(rowIndex, accumulators[it].finalValue())
+            }
+        }
+
+        val outputBatch = RecordBatch(schema, root.fieldVectors.map { ArrowFieldVector(it) })
+        // println("HashAggregateExec output: \n${outputBatch.toCSV()}")
+        return listOf(outputBatch).asSequence()
+    }
+
+    override fun children(): List<PhysicalPlan> {
+        return listOf(input)
+    }
+
+    override fun toString(): String {
+        return "HashAggregateExec: groupExpr=$groupExpr, aggrExpr=$aggregateExpr"
     }
 }
 
