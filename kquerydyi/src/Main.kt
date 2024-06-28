@@ -1,3 +1,4 @@
+import com.fasterxml.jackson.databind.introspect.DefaultAccessorNamingStrategy.FirstCharBasedValidator
 import com.univocity.parsers.csv.CsvParser
 import com.univocity.parsers.csv.CsvParserSettings
 import org.apache.arrow.memory.RootAllocator
@@ -665,6 +666,53 @@ infix fun LogicalExpr.alias(alias: String): Alias {
     return Alias(this, alias)
 }
 
+interface PhysicalPlan {
+    fun schema(): Schema
+    fun execute(): Sequence<RecordBatch>
+    fun children(): List<PhysicalPlan>
+}
+
+interface Expression {
+    fun evaluate(input: RecordBatch): ColumnVector
+}
+
+class ColumnExpression(val i: Int) : Expression {
+    override fun evaluate(input: RecordBatch): ColumnVector {
+        return input.field(i)
+    }
+
+    override fun toString(): String {
+        return "#$i"
+    }
+}
+
+class LiteralLongExpression(val value: Long) : Expression {
+    override fun evaluate(input: RecordBatch): ColumnVector {
+        return LiteralValueVector(
+            ArrowTypes.Int64Type,
+            value, input.rowCount()
+        )
+    }
+}
+
+class LiteralDoubleExpression(val value: Double) : Expression {
+    override fun evaluate(input: RecordBatch): ColumnVector {
+        return LiteralValueVector(
+            ArrowTypes.DoubleType,
+            value, input.rowCount()
+        )
+    }
+}
+
+class LiteralStringExpression(val value: String) : Expression {
+    override fun evaluate(input: RecordBatch): ColumnVector {
+        return LiteralValueVector(
+            ArrowTypes.StringType,
+            value, input.rowCount()
+        )
+    }
+}
+
 fun main() {
 
     // Here is some verbose code for building a plan for the query
@@ -724,19 +772,16 @@ fun main() {
 //        )
 
     val ctx = ExecutionContext()
-    val plan = ctx.csv("employee.csv")
-        .filter(col("state") eq lit("CO"))
-        .project(
-            listOf(
-                col("id"),
-                col("first_name"),
-                col("last_name"),
-                col("state"),
-                col("salary"),
-                (col("salary") mult lit(0.1) alias "bonus")
-            )
+    val plan = ctx.csv("employee.csv").filter(col("state") eq lit("CO")).project(
+        listOf(
+            col("id"),
+            col("first_name"),
+            col("last_name"),
+            col("state"),
+            col("salary"),
+            (col("salary") mult lit(0.1) alias "bonus")
         )
-        .filter(col("bonus") gt lit(1000))
+    ).filter(col("bonus") gt lit(1000))
 
     println(format(plan.logicalPlan()))
 }
