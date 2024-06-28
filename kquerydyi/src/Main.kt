@@ -585,7 +585,17 @@ fun main() {
     // against a CSV file containing the columns
     // id, first_name, last_name, state, job_title, salary
     val csv = CsvDataSource("employee.csv", true, 10, null)
+    val scan = Scan("employee", csv, listOf())
+    val filterExpr = Eq(Column("state"), LiteralString("CO"))
+    val selection = Selection(scan, filterExpr)
+    val projectionList = listOf(
+        Column("id"),
+        Column("first_name"),
+        Column("last_name"),
+        Column("state"),
+        Column("salary"),
+    )
+    val plan = Projection(selection, projectionList)
 
-
-
+    println(format(plan))
 }
