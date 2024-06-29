@@ -1365,23 +1365,23 @@ fun main() {
         ctx.csv("employee.csv")
             .filter(col("state") eq lit("Uppsala"))
             .project(
-                listOf( // id,first_name,last_name,state,job_title,salary
-//                    col("id"),
+                listOf(
                     col("first_name"),
-//                col("last_name"),
-//                    col("state"),
                     col("salary")
                 )
-//            ).aggregate(
-//                listOf(col("state")),
-//                listOf(Count(col("salary")))
             )
             .logicalPlan()
     )
     println(formatPhysical(physicalPlan))
 
-    val result = physicalPlan.execute()
-    result.forEach { batch ->
+    var isFirst = true
+    val queryResult = physicalPlan.execute()
+    queryResult.forEach { batch ->
+        if (isFirst) {
+            isFirst = false
+            val headers = batch.schema.fields.joinToString(" ") { it.name }
+            println(headers)
+        }
         (0..<batch.rowCount()).forEach { idx ->
             batch.fields.forEach { field ->
                 print(field.getValue(idx))
