@@ -1289,6 +1289,62 @@ fun formatPhysical(plan: PhysicalPlan, indent: Int = 0): String {
     return b.toString()
 }
 
+interface OptimizerRule {
+    fun optimize(plan: LogicalPlan): LogicalPlan
+}
+
+fun extractColumns(
+    expr: List<LogicalExpr>, input: LogicalPlan, accum: MutableSet<String>
+) {
+    expr.forEach { extractColumns(it, input, accum) }
+}
+
+fun extractColumns(expr: LogicalExpr, input: LogicalPlan, accum: MutableSet<String>) {
+    when (expr) {
+        is Column -> accum.add(expr.name)
+        is LiteralString -> {}
+        is LiteralDouble -> {}
+        is LiteralLong -> {}
+        is Eq -> {}
+        else -> throw IllegalStateException("extractColumns does not support expression: $expr")
+    }
+}
+
+class ProjectionPushDownrule : OptimizerRule {
+    override fun optimize(plan: LogicalPlan): LogicalPlan {
+        return pushDown(plan, mutableSetOf())
+    }
+
+    private fun pushDown(
+        plan: LogicalPlan,
+        columnNames: MutableSet<String>
+    ): LogicalPlan {
+        return when (plan) {
+            is Projection -> {
+                extractColumns(plan.expr, plan, columnNames)
+                val input = pushDown(plan.input, columnNames)
+                Projection(input, plan.expr)
+            }
+
+            is Selection -> {
+                extractColumns(plan.expr, plan, columnNames)
+                val input = pushDown(plan.input, columnNames)
+                Selection(input, plan.expr)
+            }
+
+            is Aggregate -> {
+                extractColumns(plan.groupExpr, plan, columnNames)
+                extractColumns(plan.aggExpr.map { it.expr }, plan, columnNames)
+                val input = pushDown(plan.input, columnNames)
+                Aggregate(input, plan.groupExpr, plan.aggExpr)
+            }
+
+            is Scan -> Scan(plan.path, plan.dataSource, columnNames.toList().sorted())
+            else -> throw UnsupportedOperationException()
+        }
+    }
+}
+
 fun main() {
 
     // Here is some verbose code for building a plan for the query
@@ -1348,29 +1404,36 @@ fun main() {
 //        )
 
     val ctx = ExecutionContext()
-    val plan = ctx.csv("employee.csv").filter(col("state") eq lit("CO")).project(
-        listOf(
-            col("id"),
-            col("first_name"),
-            col("last_name"),
-            col("state"),
-            col("salary"),
-            (col("salary") mult lit(0.1) alias "bonus")
-        )
-    ).filter(col("bonus") gt lit(1000))
+    val plan = ctx.csv("employee.csv")
+        .filter(col("state") eq lit("CO"))
+        .project(
+            listOf(
+                col("id"),
+                col("first_name"),
+                col("last_name"),
+                col("state"),
+                col("salary"),
+                (col("salary") mult lit(0.1) alias "bonus")
+            )
+        ).filter(col("bonus") gt lit(1000))
 
     println(format(plan.logicalPlan()))
 
     val csvPlan = ctx.csv("employee.csv")
         .filter(col("state") eq lit("Uppsala"))
         .aggregate(
-            listOf(col("state")),
-            listOf(Count())
+            listOf(col("state")), listOf(Count())
         )
 
     val physicalPlan = createPhysicalPlan(csvPlan.logicalPlan())
     println(formatPhysical(physicalPlan))
     printQueryResult(physicalPlan.execute())
+
+    println("=== Optimized Plan ===")
+    val optimizedCsvPlan = ProjectionPushDownrule().optimize(csvPlan.logicalPlan())
+    val optimizedPhysicalPlan = createPhysicalPlan(optimizedCsvPlan)
+    println(formatPhysical(optimizedPhysicalPlan))
+    printQueryResult(optimizedPhysicalPlan.execute())
 }
 
 private fun printQueryResult(queryResult: Sequence<RecordBatch>) {
