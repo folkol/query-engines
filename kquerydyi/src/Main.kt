@@ -1366,15 +1366,15 @@ fun main() {
             .filter(col("state") eq lit("Uppsala"))
             .project(
                 listOf( // id,first_name,last_name,state,job_title,salary
-                    col("id"),
+//                    col("id"),
                     col("first_name"),
 //                col("last_name"),
-                    col("state"),
+//                    col("state"),
                     col("salary")
                 )
-            ).aggregate(
-                listOf(col("state")),
-                listOf(Count(col("salary")))
+//            ).aggregate(
+//                listOf(col("state")),
+//                listOf(Count(col("salary")))
             )
             .logicalPlan()
     )
