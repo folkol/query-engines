@@ -6,7 +6,6 @@ import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.ArrowType
 import java.io.File
 import java.io.FileNotFoundException
-import java.lang.classfile.constantpool.NameAndTypeEntry
 import java.sql.SQLException
 import java.util.logging.Logger
 
@@ -411,7 +410,8 @@ class ReaderIterator(
     }
 
     private fun createBatch(rows: ArrayList<com.univocity.parsers.common.record.Record>): RecordBatch {
-        val root = VectorSchemaRoot.create(schema.toArrow(), RootAllocator(Long.MAX_VALUE))
+        val toArrow = schema.toArrow()
+        val root = VectorSchemaRoot.create(toArrow, RootAllocator(Long.MAX_VALUE))
         root.fieldVectors.forEach { it.setInitialCapacity(rows.size) }
         root.allocateNew()
 
@@ -708,6 +708,10 @@ class LiteralStringExpression(val value: String) : Expression {
             ArrowTypes.StringType, value, input.rowCount()
         )
     }
+
+    override fun toString(): String {
+        return value
+    }
 }
 
 abstract class BinaryExpression(val l: Expression, val r: Expression) : Expression {
@@ -768,6 +772,10 @@ class EqExpression(l: Expression, r: Expression) : BooleanExpression(l, r) {
                 "Unsupported data type in comparison expression: $arrowType"
             )
         }
+    }
+
+    override fun toString(): String {
+        return "$l = $r"
     }
 }
 
@@ -1007,10 +1015,9 @@ class SumAccumulator : Accumulator {
                     is Long -> this.value = currentValue + value as Long
                     is Float -> this.value = currentValue + value as Float
                     is Double -> this.value = currentValue + value as Double
-                    else ->
-                        throw UnsupportedOperationException(
-                            "MIN is not implemented for type: ${value.javaClass.name}"
-                        )
+                    else -> throw UnsupportedOperationException(
+                        "MIN is not implemented for type: ${value.javaClass.name}"
+                    )
                 }
             }
         }
@@ -1021,8 +1028,42 @@ class SumAccumulator : Accumulator {
     }
 }
 
+class CountExpression(private val expr: Expression) : AggregateExpression {
+
+    override fun inputExpression(): Expression {
+        return expr
+    }
+
+    override fun createAccumulator(): Accumulator {
+        return CountAccumulator()
+    }
+
+    override fun toString(): String {
+        return "COUNT($expr)"
+    }
+}
+
+class CountAccumulator : Accumulator {
+
+    var value: Int = 0
+
+    override fun accumulate(value: Any?) {
+        if (value != null) {
+            this.value++
+        }
+    }
+
+    override fun finalValue(): Int {
+        return value
+    }
+}
+
 class ScanExec(val ds: DataSource, val projection: List<String>) : PhysicalPlan {
     override fun schema(): Schema {
+        println("getting schema with projection: $projection")
+//        val schema = ds.schema()
+//        val projection = schema.fields.withIndex().filter { it.index
+//        }
         return ds.schema().select(projection)
     }
 
@@ -1226,7 +1267,7 @@ fun createPhysicalPlan(plan: LogicalPlan): PhysicalPlan {
                 when (it) {
                     is Max -> MaxExpression(createPhysicalExpr(it.expr, plan.input))
                     is Sum -> SumExpression(createPhysicalExpr(it.expr, plan.input))
-                    // ...
+                    is Count -> CountExpression(createPhysicalExpr(it.expr, plan.input))
                     else -> throw IllegalStateException(
                         "Unsupported aggregate function: $it"
                     )
@@ -1237,6 +1278,15 @@ fun createPhysicalPlan(plan: LogicalPlan): PhysicalPlan {
 
         else -> throw IllegalStateException("Unknown physical plan")
     }
+}
+
+/** Format a logical plan in human-readable form */
+fun formatPhysical(plan: PhysicalPlan, indent: Int = 0): String {
+    val b = StringBuilder()
+    0.until(indent).forEach { b.append("\t") }
+    b.append(plan.toString()).append("\n")
+    plan.children().forEach { b.append(formatPhysical(it, indent + 1)) }
+    return b.toString()
 }
 
 fun main() {
@@ -1310,4 +1360,34 @@ fun main() {
     ).filter(col("bonus") gt lit(1000))
 
     println(format(plan.logicalPlan()))
+
+    val physicalPlan = createPhysicalPlan(
+        ctx.csv("employee.csv")
+            .filter(col("state") eq lit("Uppsala"))
+            .project(
+                listOf( // id,first_name,last_name,state,job_title,salary
+                    col("id"),
+                    col("first_name"),
+//                col("last_name"),
+                    col("state"),
+                    col("salary")
+                )
+            ).aggregate(
+                listOf(col("state")),
+                listOf(Count(col("salary")))
+            )
+            .logicalPlan()
+    )
+    println(formatPhysical(physicalPlan))
+
+    val result = physicalPlan.execute()
+    result.forEach { batch ->
+        (0..<batch.rowCount()).forEach { idx ->
+            batch.fields.forEach { field ->
+                print(field.getValue(idx))
+                print(" ")
+            }
+            println()
+        }
+    }
 }
