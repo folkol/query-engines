@@ -6,6 +6,7 @@ import org.apache.arrow.vector.types.FloatingPointPrecision
 import org.apache.arrow.vector.types.pojo.ArrowType
 import java.io.File
 import java.io.FileNotFoundException
+import java.lang.classfile.constantpool.NameAndTypeEntry
 import java.sql.SQLException
 import java.util.logging.Logger
 
@@ -974,6 +975,52 @@ class MaxAccumulator : Accumulator {
     }
 }
 
+class SumExpression(private val expr: Expression) : AggregateExpression {
+
+    override fun inputExpression(): Expression {
+        return expr
+    }
+
+    override fun createAccumulator(): Accumulator {
+        return SumAccumulator()
+    }
+
+    override fun toString(): String {
+        return "SUM($expr)"
+    }
+}
+
+class SumAccumulator : Accumulator {
+
+    var value: Any? = null
+
+    override fun accumulate(value: Any?) {
+        if (value != null) {
+            if (this.value == null) {
+                this.value = value
+            } else {
+                val currentValue = this.value
+                when (currentValue) {
+                    is Byte -> this.value = currentValue + value as Byte
+                    is Short -> this.value = currentValue + value as Short
+                    is Int -> this.value = currentValue + value as Int
+                    is Long -> this.value = currentValue + value as Long
+                    is Float -> this.value = currentValue + value as Float
+                    is Double -> this.value = currentValue + value as Double
+                    else ->
+                        throw UnsupportedOperationException(
+                            "MIN is not implemented for type: ${value.javaClass.name}"
+                        )
+                }
+            }
+        }
+    }
+
+    override fun finalValue(): Any? {
+        return value
+    }
+}
+
 class ScanExec(val ds: DataSource, val projection: List<String>) : PhysicalPlan {
     override fun schema(): Schema {
         return ds.schema().select(projection)
@@ -1060,15 +1107,15 @@ class SelectionExec(
     }
 }
 
-interface PhysicalAggregateExpression {
-    fun inputExpression(): Expression
-    fun createAccumulator(): Accumulator
-}
+//interface PhysicalAggregateExpression {
+//    fun inputExpression(): Expression
+//    fun createAccumulator(): Accumulator
+//}
 
 class HashAggregateExec(
     val input: PhysicalPlan,
     val groupExpr: List<Expression>,
-    val aggregateExpr: List<PhysicalAggregateExpression>,
+    val aggregateExpr: List<AggregateExpression>,
     val schema: Schema
 ) : PhysicalPlan {
     override fun schema(): Schema {
@@ -1122,6 +1169,73 @@ class HashAggregateExec(
 
     override fun toString(): String {
         return "HashAggregateExec: groupExpr=$groupExpr, aggrExpr=$aggregateExpr"
+    }
+}
+
+fun createPhysicalExpr(expr: LogicalExpr, input: LogicalPlan): Expression = when (expr) {
+    is Column -> {
+        val i = input.schema().fields.indexOfFirst { it.name == expr.name }
+        if (i == -1) {
+            throw SQLException("No column named '${expr.name}")
+        }
+        ColumnExpression(i)
+    }
+
+    is LiteralLong -> LiteralLongExpression(expr.n)
+    is LiteralDouble -> LiteralDoubleExpression(expr.n)
+    is LiteralString -> LiteralStringExpression(expr.str)
+    is BinaryExpr -> {
+        val l = createPhysicalExpr(expr.l, input)
+        val r = createPhysicalExpr(expr.r, input)
+        when (expr) {
+            // comparison
+            is Eq -> EqExpression(l, r)
+
+            // boolean
+
+            // math
+            is Add -> AddExpression(l, r)
+
+            else -> throw IllegalStateException("Unsupported binary expression: $expr")
+        }
+    }
+
+    else -> throw IllegalStateException("Unknown expr: $expr")
+}
+
+fun createPhysicalPlan(plan: LogicalPlan): PhysicalPlan {
+    return when (plan) {
+        is Scan -> ScanExec(plan.dataSource, plan.projection)
+        is Projection -> {
+            val input = createPhysicalPlan(plan.input)
+            val projectionExpr = plan.expr.map { createPhysicalExpr(it, plan.input) }
+            val projectionSchema = Schema(plan.expr.map { it.toField(plan.input) })
+            ProjectionExec(input, projectionSchema, projectionExpr)
+        }
+
+        is Selection -> {
+            val input = createPhysicalPlan(plan.input)
+            val filterExpr = createPhysicalExpr(plan.expr, plan.input)
+            SelectionExec(input, filterExpr)
+        }
+
+        is Aggregate -> {
+            val input = createPhysicalPlan(plan.input)
+            val groupExpr = plan.groupExpr.map { createPhysicalExpr(it, plan.input) }
+            val aggregateExpr = plan.aggExpr.map {
+                when (it) {
+                    is Max -> MaxExpression(createPhysicalExpr(it.expr, plan.input))
+                    is Sum -> SumExpression(createPhysicalExpr(it.expr, plan.input))
+                    // ...
+                    else -> throw IllegalStateException(
+                        "Unsupported aggregate function: $it"
+                    )
+                }
+            }
+            HashAggregateExec(input, groupExpr, aggregateExpr, plan.schema())
+        }
+
+        else -> throw IllegalStateException("Unknown physical plan")
     }
 }
 
