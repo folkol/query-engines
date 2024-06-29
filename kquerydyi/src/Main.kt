@@ -208,7 +208,7 @@ class Min(input: LogicalExpr) : AggregateExpr("MIN", input)
 class Max(input: LogicalExpr) : AggregateExpr("MAX", input)
 class Avg(input: LogicalExpr) : AggregateExpr("AVG", input)
 
-class Count(input: LogicalExpr) : AggregateExpr("COUNT", input) {
+class Count(input: LogicalExpr = LiteralLong(1)) : AggregateExpr("COUNT", input) {
     override fun toField(input: LogicalPlan): Field {
         return Field("COUNT", ArrowTypes.Int32Type)
     }
@@ -1361,24 +1361,23 @@ fun main() {
 
     println(format(plan.logicalPlan()))
 
-    val physicalPlan = createPhysicalPlan(
-        ctx.csv("employee.csv")
-            .filter(col("state") eq lit("Uppsala"))
-            .project(
-                listOf(
-                    col("first_name"),
-                    col("salary")
-                )
-            )
-            .logicalPlan()
-    )
-    println(formatPhysical(physicalPlan))
+    val csvPlan = ctx.csv("employee.csv")
+        .filter(col("state") eq lit("Uppsala"))
+        .aggregate(
+            listOf(col("state")),
+            listOf(Count())
+        )
 
-    var isFirst = true
-    val queryResult = physicalPlan.execute()
+    val physicalPlan = createPhysicalPlan(csvPlan.logicalPlan())
+    println(formatPhysical(physicalPlan))
+    printQueryResult(physicalPlan.execute())
+}
+
+private fun printQueryResult(queryResult: Sequence<RecordBatch>) {
+    var isFirst1 = true
     queryResult.forEach { batch ->
-        if (isFirst) {
-            isFirst = false
+        if (isFirst1) {
+            isFirst1 = false
             val headers = batch.schema.fields.joinToString(" ") { it.name }
             println(headers)
         }
