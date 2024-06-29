@@ -617,6 +617,27 @@ class ExecutionContext {
     /// fun parquet
 }
 
+class CastExpr(val expr: LogicalExpr, val dataType: ArrowType) : LogicalExpr {
+    override fun toField(input: LogicalPlan): Field {
+        return Field(expr.toField(input).name, dataType)
+    }
+
+    override fun toString(): String {
+        return "CAST($expr AS $dataType)"
+    }
+}
+
+fun cast(expr: LogicalExpr, dataType: ArrowType) = CastExpr(expr, dataType)
+
+//abstract class BinaryExpr(
+//    val name: String, val op: String, val l: LogicalExpr, val r: LogicalExpr
+//) : LogicalExpr {
+//
+//    override fun toString(): String {
+//        return "$l $op $r"
+//    }
+//}
+
 // supported expression objects
 fun col(name: String) = Column(name)
 fun lit(value: String) = LiteralString(value)
@@ -1310,7 +1331,7 @@ fun extractColumns(expr: LogicalExpr, input: LogicalPlan, accum: MutableSet<Stri
     }
 }
 
-class ProjectionPushDownrule : OptimizerRule {
+class ProjectionPushDownRule : OptimizerRule {
     override fun optimize(plan: LogicalPlan): LogicalPlan {
         return pushDown(plan, mutableSetOf())
     }
@@ -1342,6 +1363,138 @@ class ProjectionPushDownrule : OptimizerRule {
             is Scan -> Scan(plan.path, plan.dataSource, columnNames.toList().sorted())
             else -> throw UnsupportedOperationException()
         }
+    }
+}
+
+class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression {
+
+    override fun toString(): String {
+        return "CAST($expr AS $dataType)"
+    }
+
+    override fun evaluate(input: RecordBatch): ColumnVector {
+        val value: ColumnVector = expr.evaluate(input)
+        val fieldVector = FieldVectorFactory.create(dataType, input.rowCount())
+        val builder = ArrowVectorBuilder(fieldVector)
+
+        when (dataType) {
+            ArrowTypes.Int8Type -> {
+                (0 until value.size()).forEach {
+                    val vv = value.getValue(it)
+                    if (vv == null) {
+                        builder.set(it, null)
+                    } else {
+                        val castValue =
+                            when (vv) {
+                                is ByteArray -> String(vv).toByte()
+                                is String -> vv.toByte()
+                                is Number -> vv.toByte()
+                                else -> throw IllegalStateException("Cannot cast value to Byte: $vv")
+                            }
+                        builder.set(it, castValue)
+                    }
+                }
+            }
+            ArrowTypes.Int16Type -> {
+                (0 until value.size()).forEach {
+                    val vv = value.getValue(it)
+                    if (vv == null) {
+                        builder.set(it, null)
+                    } else {
+                        val castValue =
+                            when (vv) {
+                                is ByteArray -> String(vv).toShort()
+                                is String -> vv.toShort()
+                                is Number -> vv.toShort()
+                                else -> throw IllegalStateException("Cannot cast value to Short: $vv")
+                            }
+                        builder.set(it, castValue)
+                    }
+                }
+            }
+            ArrowTypes.Int32Type -> {
+                (0 until value.size()).forEach {
+                    val vv = value.getValue(it)
+                    if (vv == null) {
+                        builder.set(it, null)
+                    } else {
+                        val castValue =
+                            when (vv) {
+                                is ByteArray -> String(vv).toInt()
+                                is String -> vv.toInt()
+                                is Number -> vv.toInt()
+                                else -> throw IllegalStateException("Cannot cast value to Int: $vv")
+                            }
+                        builder.set(it, castValue)
+                    }
+                }
+            }
+            ArrowTypes.Int64Type -> {
+                (0 until value.size()).forEach {
+                    val vv = value.getValue(it)
+                    if (vv == null) {
+                        builder.set(it, null)
+                    } else {
+                        val castValue =
+                            when (vv) {
+                                is ByteArray -> String(vv).toLong()
+                                is String -> vv.toLong()
+                                is Number -> vv.toLong()
+                                else -> throw IllegalStateException("Cannot cast value to Long: $vv")
+                            }
+                        builder.set(it, castValue)
+                    }
+                }
+            }
+            ArrowTypes.FloatType -> {
+                (0 until value.size()).forEach {
+                    val vv = value.getValue(it)
+                    if (vv == null) {
+                        builder.set(it, null)
+                    } else {
+                        val castValue =
+                            when (vv) {
+                                is ByteArray -> String(vv).toFloat()
+                                is String -> vv.toFloat()
+                                is Number -> vv.toFloat()
+                                else -> throw IllegalStateException("Cannot cast value to Float: $vv")
+                            }
+                        builder.set(it, castValue)
+                    }
+                }
+            }
+            ArrowTypes.DoubleType -> {
+                (0 until value.size()).forEach {
+                    val vv = value.getValue(it)
+                    if (vv == null) {
+                        builder.set(it, null)
+                    } else {
+                        val castValue =
+                            when (vv) {
+                                is ByteArray -> String(vv).toDouble()
+                                is String -> vv.toDouble()
+                                is Number -> vv.toDouble()
+                                else -> throw IllegalStateException("Cannot cast value to Double: $vv")
+                            }
+                        builder.set(it, castValue)
+                    }
+                }
+            }
+            ArrowTypes.StringType -> {
+                (0 until value.size()).forEach {
+                    val vv = value.getValue(it)
+                    if (vv == null) {
+                        builder.set(it, null)
+                    } else {
+                        builder.set(it, vv.toString())
+                    }
+                }
+            }
+            else -> throw IllegalStateException("Cast to $dataType is not supported")
+        }
+
+        builder.setValueCount(value.size())
+        return builder.build()
     }
 }
 
@@ -1377,7 +1530,7 @@ fun main() {
 //        )
 //    )
 
-//    val ctx = ExecutionContext()
+    val ctx = ExecutionContext()
 //    val plan = ctx.csv("employee.csv")
 //        .filter(Eq(Column("state"), LiteralString("CO")))
 //        .project(
@@ -1402,38 +1555,74 @@ fun main() {
 //                col("salary"),
 //            )
 //        )
+//
+//    val ctx = ExecutionContext()
+//    val plan = ctx.csv("employee.csv")
+//        .filter(col("state") eq lit("CO"))
+//        .project(
+//            listOf(
+//                col("id"),
+//                col("first_name"),
+//                col("last_name"),
+//                col("state"),
+//                col("salary"),
+//                (col("salary") mult lit(0.1) alias "bonus")
+//            )
+//        ).filter(col("bonus") gt lit(1000))
+//
+//    println(format(plan.logicalPlan()))
+//
+//    val csvPlan = ctx.csv("employee.csv")
+//        .filter(col("state") eq lit("Uppsala"))
+//        .aggregate(
+//            listOf(col("state")), listOf(Count())
+//        )
+//
+//    val physicalPlan = createPhysicalPlan(csvPlan.logicalPlan())
+//    println(formatPhysical(physicalPlan))
+//    printQueryResult(physicalPlan.execute())
+//
+//    println("=== Optimized Plan ===")
+//    val optimizedCsvPlan = ProjectionPushDownRule().optimize(csvPlan.logicalPlan())
+//    val optimizedPhysicalPlan = createPhysicalPlan(optimizedCsvPlan)
+//    println(formatPhysical(optimizedPhysicalPlan))
+//    printQueryResult(optimizedPhysicalPlan.execute())
 
-    val ctx = ExecutionContext()
-    val plan = ctx.csv("employee.csv")
-        .filter(col("state") eq lit("CO"))
-        .project(
-            listOf(
-                col("id"),
-                col("first_name"),
-                col("last_name"),
-                col("state"),
-                col("salary"),
-                (col("salary") mult lit(0.1) alias "bonus")
-            )
-        ).filter(col("bonus") gt lit(1000))
-
-    println(format(plan.logicalPlan()))
-
-    val csvPlan = ctx.csv("employee.csv")
-        .filter(col("state") eq lit("Uppsala"))
+    val yellowCab = ctx.csv("yellow_tripdata_2024-01.csv")
+//        .filter(col("state") eq lit("Uppsala"))
         .aggregate(
-            listOf(col("state")), listOf(Count())
+            listOf(col("passenger_count")), listOf(Count())
         )
 
-    val physicalPlan = createPhysicalPlan(csvPlan.logicalPlan())
-    println(formatPhysical(physicalPlan))
-    printQueryResult(physicalPlan.execute())
+//    (0..<3).forEach { doit(yellowCab) }
+//    (0..<3).forEach { doitFast(yellowCab) }
+    doit(yellowCab)
+//    println(formatPhysical(optimizedPhysicalPlan))
+//    printQueryResult(optimizedPhysicalPlan.execute())
 
-    println("=== Optimized Plan ===")
-    val optimizedCsvPlan = ProjectionPushDownrule().optimize(csvPlan.logicalPlan())
-    val optimizedPhysicalPlan = createPhysicalPlan(optimizedCsvPlan)
-    println(formatPhysical(optimizedPhysicalPlan))
+}
+
+private fun doit(yellowCab: DataFrame) {
+    val start = System.currentTimeMillis()
+    println("going yello")
+//    val optimizedYellowCab = ProjectionPushDownRule().optimize(yellowCab.logicalPlan())
+    val optimizedPhysicalPlan = createPhysicalPlan(yellowCab.logicalPlan())
+//    println(formatPhysical(optimizedPhysicalPlan))
+    consumeQueryResult(optimizedPhysicalPlan.execute())
+    val elapsed = System.currentTimeMillis() - start;
+    println("done in $elapsed ms")
     printQueryResult(optimizedPhysicalPlan.execute())
+}
+
+private fun doitFast(yellowCab: DataFrame) {
+    val start = System.currentTimeMillis()
+    println("going yello fast")
+    val optimizedYellowCab = ProjectionPushDownRule().optimize(yellowCab.logicalPlan())
+    val optimizedPhysicalPlan = createPhysicalPlan(optimizedYellowCab)
+//    println(formatPhysical(optimizedPhysicalPlan))
+    consumeQueryResult(optimizedPhysicalPlan.execute())
+    val elapsed = System.currentTimeMillis() - start;
+    println("done in $elapsed ms")
 }
 
 private fun printQueryResult(queryResult: Sequence<RecordBatch>) {
@@ -1452,4 +1641,24 @@ private fun printQueryResult(queryResult: Sequence<RecordBatch>) {
             println()
         }
     }
+}
+
+private fun consumeQueryResult(queryResult: Sequence<RecordBatch>) {
+    val count = queryResult.count()
+    print("got $count batches")
+//    var isFirst1 = true
+//    queryResult.forEach { batch ->
+//        if (isFirst1) {
+//            isFirst1 = false
+//            val headers = batch.schema.fields.joinToString(" ") { it.name }
+//            println(headers)
+//        }
+//        (0..<batch.rowCount()).forEach { idx ->
+//            batch.fields.forEach { field ->
+//                print(field.getValue(idx))
+//                print(" ")
+//            }
+//            println()
+//        }
+//    }
 }
