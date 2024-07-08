@@ -635,6 +635,10 @@ class ExecutionContext {
         register(tablename, csv(filename))
     }
 
+    fun registerDataSource(tablename: String, datasource: DataSource) {
+        register(tablename, DataFrameImpl(Scan(tablename, datasource, listOf1())))
+    }
+
     /** Execute the logical plan represented by a DataFrame */
     fun execute(df: DataFrame): Sequence<RecordBatch> {
         return execute(df.logicalPlan())
@@ -646,6 +650,7 @@ class ExecutionContext {
 //        val physicalPlan = QueryPlanner().createPhysicalPlan(optimizedPlan)
         val optimizedPlan = ProjectionPushDownRule().optimize(plan)
         val physicalPlan = createPhysicalPlan(optimizedPlan)
+//        val physicalPlan = createPhysicalPlan(plan)
         return physicalPlan.execute()
     }
     /// fun parquet
@@ -1295,7 +1300,6 @@ fun createPhysicalExpr(expr: LogicalExpr, input: LogicalPlan): Expression = when
             else -> throw IllegalStateException("Unsupported binary expression: $expr")
         }
     }
-
     else -> throw IllegalStateException("Unknown expr: $expr")
 }
 
@@ -1361,6 +1365,7 @@ fun extractColumns(expr: LogicalExpr, input: LogicalPlan, accum: MutableSet<Stri
         is LiteralDouble -> {}
         is LiteralLong -> {}
         is Eq -> {}
+        is Max -> accum.add(expr.name)
         else -> throw IllegalStateException("extractColumns does not support expression: $expr")
     }
 }
@@ -2442,6 +2447,14 @@ private fun createLogicalExpr(expr: SqlExpr, input: DataFrame): LogicalExpr {
                 else -> throw SQLException("Invalid operator ${expr.op}")
             }
         }
+        is SqlFunction ->
+            when (expr.id) {
+                "MIN" -> Min(createLogicalExpr(expr.args.first(), input))
+                "MAX" -> Max(createLogicalExpr(expr.args.first(), input))
+                "SUM" -> Sum(createLogicalExpr(expr.args.first(), input))
+                "AVG" -> Avg(createLogicalExpr(expr.args.first(), input))
+                else -> throw SQLException("Invalid aggregate function: $expr")
+            }
 
         else -> throw UnsupportedOperationException()
     }
@@ -2537,6 +2550,21 @@ fun executeQuery(path: String, month: Int, sql: String): List<RecordBatch> {
     ctx.registerCsv("tripdata", filename)
     val df = ctx.sql(sql)
     return ctx.execute(df).toList()
+}
+
+class InMemoryDataSource(val schema: Schema, val data: List<RecordBatch>) : DataSource {
+
+    override fun schema(): Schema {
+        return schema
+    }
+
+    override fun scan(projection: List<String>): Sequence<RecordBatch> {
+        val projectionIndices =
+            projection.map { name -> schema.fields.indexOfFirst { it.name == name } }
+        return data.asSequence().map { batch ->
+            RecordBatch(schema, projectionIndices.map { i -> batch.field(i) })
+        }
+    }
 }
 
 fun main() {
@@ -2688,6 +2716,16 @@ fun main() {
     val duration = System.currentTimeMillis() - start
     println("Collected ${results.size} batches in $duration ms")
 
+    val sql = "SELECT passenger_count " +
+            "FROM tripdata " +
+            "GROUP BY passenger_count"
+
+    val ctx = ExecutionContext()
+    ctx.registerDataSource("tripdata", InMemoryDataSource(results.first().schema, results))
+    val df = ctx.sql(sql)
+    val result = ctx.execute(df)
+
+    printQueryResult(result)
 }
 
 private fun doit(yellowCab: DataFrame) {
