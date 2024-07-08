@@ -8,6 +8,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.sql.SQLException
 import java.util.logging.Logger
+import kotlin.collections.listOf as listOf1
 
 object ArrowTypes {
     val BooleanType = ArrowType.Bool()
@@ -52,7 +53,7 @@ class LiteralValueVector(
 data class Field(val name: String, val dataType: ArrowType) {
     fun toArrow(): org.apache.arrow.vector.types.pojo.Field {
         val fieldType = org.apache.arrow.vector.types.pojo.FieldType(true, dataType, null)
-        return org.apache.arrow.vector.types.pojo.Field(name, fieldType, listOf())
+        return org.apache.arrow.vector.types.pojo.Field(name, fieldType, listOf1())
     }
 }
 
@@ -237,7 +238,7 @@ class Scan(
     }
 
     override fun children(): List<LogicalPlan> {
-        return listOf()
+        return listOf1()
     }
 
     override fun toString(): String {
@@ -257,7 +258,7 @@ class Projection(
     }
 
     override fun children(): List<LogicalPlan> {
-        return listOf(input)
+        return listOf1(input)
     }
 
     override fun toString(): String {
@@ -277,7 +278,7 @@ class Selection(
     }
 
     override fun children(): List<LogicalPlan> {
-        return listOf(input)
+        return listOf1(input)
     }
 
     override fun toString(): String {
@@ -293,7 +294,7 @@ class Aggregate(
     }
 
     override fun children(): List<LogicalPlan> {
-        return listOf(input)
+        return listOf1(input)
     }
 
     override fun toString(): String {
@@ -611,7 +612,7 @@ class DataFrameImpl(private val plan: LogicalPlan) : DataFrame {
 
 class ExecutionContext {
     fun csv(filename: String): DataFrame {
-        return DataFrameImpl(Scan(filename, CsvDataSource(filename, true, 10, null), listOf()))
+        return DataFrameImpl(Scan(filename, CsvDataSource(filename, true, 1000, null), listOf1()))
     }
 
     /// fun parquet
@@ -1093,7 +1094,7 @@ class ScanExec(val ds: DataSource, val projection: List<String>) : PhysicalPlan 
     }
 
     override fun children(): List<PhysicalPlan> {
-        return listOf()
+        return listOf1()
     }
 
     override fun toString(): String {
@@ -1116,7 +1117,7 @@ class ProjectionExec(
     }
 
     override fun children(): List<PhysicalPlan> {
-        return listOf(input)
+        return listOf1(input)
     }
 
     override fun toString(): String {
@@ -1146,7 +1147,7 @@ class SelectionExec(
     }
 
     override fun children(): List<PhysicalPlan> {
-        return listOf(input)
+        return listOf1(input)
     }
 
     private fun filter(v: ColumnVector, selection: BitVector): FieldVector {
@@ -1222,11 +1223,11 @@ class HashAggregateExec(
 
         val outputBatch = RecordBatch(schema, root.fieldVectors.map { ArrowFieldVector(it) })
         // println("HashAggregateExec output: \n${outputBatch.toCSV()}")
-        return listOf(outputBatch).asSequence()
+        return listOf1(outputBatch).asSequence()
     }
 
     override fun children(): List<PhysicalPlan> {
-        return listOf(input)
+        return listOf1(input)
     }
 
     override fun toString(): String {
@@ -1395,6 +1396,7 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     }
                 }
             }
+
             ArrowTypes.Int16Type -> {
                 (0 until value.size()).forEach {
                     val vv = value.getValue(it)
@@ -1412,6 +1414,7 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     }
                 }
             }
+
             ArrowTypes.Int32Type -> {
                 (0 until value.size()).forEach {
                     val vv = value.getValue(it)
@@ -1429,6 +1432,7 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     }
                 }
             }
+
             ArrowTypes.Int64Type -> {
                 (0 until value.size()).forEach {
                     val vv = value.getValue(it)
@@ -1446,6 +1450,7 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     }
                 }
             }
+
             ArrowTypes.FloatType -> {
                 (0 until value.size()).forEach {
                     val vv = value.getValue(it)
@@ -1463,6 +1468,7 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     }
                 }
             }
+
             ArrowTypes.DoubleType -> {
                 (0 until value.size()).forEach {
                     val vv = value.getValue(it)
@@ -1480,6 +1486,7 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     }
                 }
             }
+
             ArrowTypes.StringType -> {
                 (0 until value.size()).forEach {
                     val vv = value.getValue(it)
@@ -1490,11 +1497,25 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     }
                 }
             }
+
             else -> throw IllegalStateException("Cast to $dataType is not supported")
         }
 
         builder.setValueCount(value.size())
         return builder.build()
+    }
+}
+
+interface Token
+data class IdentifierToken(val s: String) : Token
+data class LiteralStringToken(val s: String) : Token
+data class LiteralLongToken(val s: String) : Token
+data class KeywordToken(val s: String) : Token
+data class OperatorToken(val s: String) : Token
+
+class Tokenizer(val sql: String) {
+    fun tokenize(): List<Token> {
+        return emptyList()
     }
 }
 
@@ -1590,13 +1611,14 @@ fun main() {
 
     val yellowCab = ctx.csv("yellow_tripdata_2024-01.csv")
 //        .filter(col("state") eq lit("Uppsala"))
+//        .filter(col("Airport_fee") eq lit("0.0"))
         .aggregate(
-            listOf(col("passenger_count")), listOf(Count())
+            listOf1(col("passenger_count")), listOf1(Count())
         )
 
 //    (0..<3).forEach { doit(yellowCab) }
-//    (0..<3).forEach { doitFast(yellowCab) }
-    doit(yellowCab)
+    (0..<3).forEach { doitFast(yellowCab) }
+//    doitFast(yellowCab)
 //    println(formatPhysical(optimizedPhysicalPlan))
 //    printQueryResult(optimizedPhysicalPlan.execute())
 
@@ -1620,9 +1642,11 @@ private fun doitFast(yellowCab: DataFrame) {
     val optimizedYellowCab = ProjectionPushDownRule().optimize(yellowCab.logicalPlan())
     val optimizedPhysicalPlan = createPhysicalPlan(optimizedYellowCab)
 //    println(formatPhysical(optimizedPhysicalPlan))
-    consumeQueryResult(optimizedPhysicalPlan.execute())
+    val queryResult = optimizedPhysicalPlan.execute()
+    consumeQueryResult(queryResult)
     val elapsed = System.currentTimeMillis() - start;
     println("done in $elapsed ms")
+    printQueryResult(queryResult)
 }
 
 private fun printQueryResult(queryResult: Sequence<RecordBatch>) {
@@ -1645,7 +1669,7 @@ private fun printQueryResult(queryResult: Sequence<RecordBatch>) {
 
 private fun consumeQueryResult(queryResult: Sequence<RecordBatch>) {
     val count = queryResult.count()
-    print("got $count batches")
+    println("got $count batches")
 //    var isFirst1 = true
 //    queryResult.forEach { batch ->
 //        if (isFirst1) {
