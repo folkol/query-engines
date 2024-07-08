@@ -1027,6 +1027,7 @@ class MaxAccumulator : Accumulator {
             } else {
                 val isMax = when (value) {
                     is Byte -> value > this.value as Byte
+                    is Double -> value > this.value as Double
                     else -> throw UnsupportedOperationException(
                         "MAX is not implemented for data type ${value.javaClass.name}"
                     )
@@ -1282,9 +1283,18 @@ fun createPhysicalExpr(expr: LogicalExpr, input: LogicalPlan): Expression = when
         ColumnExpression(i)
     }
 
+    is ColumnIndex -> ColumnExpression(expr.i)
+    is Alias -> {
+        // note that there is no physical expression for an alias since the alias
+        // only affects the name using in the planning phase and not how the aliased
+        // expression is executed
+        createPhysicalExpr(expr.expr, input)
+    }
+
     is LiteralLong -> LiteralLongExpression(expr.n)
     is LiteralDouble -> LiteralDoubleExpression(expr.n)
     is LiteralString -> LiteralStringExpression(expr.str)
+    is CastExpr -> CastExpression(createPhysicalExpr(expr.expr, input), expr.dataType)
     is BinaryExpr -> {
         val l = createPhysicalExpr(expr.l, input)
         val r = createPhysicalExpr(expr.r, input)
@@ -1300,6 +1310,7 @@ fun createPhysicalExpr(expr: LogicalExpr, input: LogicalPlan): Expression = when
             else -> throw IllegalStateException("Unsupported binary expression: $expr")
         }
     }
+
     else -> throw IllegalStateException("Unknown expr: $expr")
 }
 
@@ -1361,11 +1372,37 @@ fun extractColumns(
 fun extractColumns(expr: LogicalExpr, input: LogicalPlan, accum: MutableSet<String>) {
     when (expr) {
         is Column -> accum.add(expr.name)
+        is ColumnIndex -> {
+            val element = input.schema().fields[expr.i].name
+            println("ColumnIndex, found: $element")
+            accum.add(element)
+        }
+
+        is Alias -> {
+            extractColumns(expr.expr, input, accum)
+            println("Recursing into aliased expression: $expr")
+        }
+
+        is CastExpr -> extractColumns(expr.expr, input, accum)
+
         is LiteralString -> {}
         is LiteralDouble -> {}
         is LiteralLong -> {}
         is Eq -> {}
-        is Max -> accum.add(expr.name)
+        is AggregateExpr -> {
+//            is Max -> {
+            //            val lol = accum.add(expr.name)
+//                val lol = expr.name;
+//                println("found $lol in $expr")
+//                accum.add("fare_amount")
+//            }
+            println("aggregate expr: $expr")
+            //            val lol = accum.add(expr.name)
+            val lol = expr.name;
+            println("found $lol in $expr")
+            accum.add("fare_amount")
+        }
+
         else -> throw IllegalStateException("extractColumns does not support expression: $expr")
     }
 }
@@ -1381,7 +1418,7 @@ class ProjectionPushDownRule : OptimizerRule {
     ): LogicalPlan {
         return when (plan) {
             is Projection -> {
-                extractColumns(plan.expr, plan, columnNames)
+                extractColumns(plan.expr, plan.input, columnNames)
                 val input = pushDown(plan.input, columnNames)
                 Projection(input, plan.expr)
             }
@@ -1393,13 +1430,18 @@ class ProjectionPushDownRule : OptimizerRule {
             }
 
             is Aggregate -> {
-                extractColumns(plan.groupExpr, plan, columnNames)
-                extractColumns(plan.aggExpr.map { it.expr }, plan, columnNames)
+                extractColumns(plan.groupExpr, plan.input, columnNames)
+                extractColumns(plan.aggExpr.map { it.expr }, plan.input, columnNames)
                 val input = pushDown(plan.input, columnNames)
                 Aggregate(input, plan.groupExpr, plan.aggExpr)
             }
 
-            is Scan -> Scan(plan.path, plan.dataSource, columnNames.toList().sorted())
+            is Scan -> {
+                val validFieldNames = plan.dataSource.schema().fields.map { it.name }.toSet()
+                val pushDown = validFieldNames.filter { columnNames.contains(it) }.toSet().sorted()
+                Scan(plan.path, plan.dataSource, pushDown)
+            }
+
             else -> throw UnsupportedOperationException()
         }
     }
@@ -2417,10 +2459,199 @@ class SqlParser(val tokens: SqlTokenizer.TokenStream) : PrattParser {
     }
 }
 
+class ColumnIndex(val i: Int) : LogicalExpr {
+
+    override fun toField(input: LogicalPlan): Field {
+        return input.schema().fields[i]
+    }
+
+    override fun toString(): String {
+        return "#$i"
+    }
+}
+
+fun createDataFrame(select: SqlSelect, tables: Map<String, DataFrame>): DataFrame {
+
+    // get a reference to the data source
+    val table =
+        tables[select.tableName] ?: throw SQLException("No table named '${select.tableName}'")
+
+    // translate projection sql expressions into logical expressions
+    val projectionExpr = select.projection.map { createLogicalExpr(it, table) }
+
+    // build a list of columns referenced in the projection
+    val columnNamesInProjection = getReferencedColumns(projectionExpr)
+
+    val aggregateExprCount = projectionExpr.count { isAggregateExpr(it) }
+    if (aggregateExprCount == 0 && select.groupBy.isNotEmpty()) {
+        throw SQLException("GROUP BY without aggregate expressions is not supported")
+    }
+
+    // does the filter expression reference anything not in the final projection?
+    val columnNamesInSelection = getColumnsReferencedBySelection(select, table)
+
+    var plan = table
+
+    if (aggregateExprCount == 0) {
+        return planNonAggregateQuery(
+            select, plan, projectionExpr, columnNamesInSelection, columnNamesInProjection
+        )
+    } else {
+        val projection = mutableListOf<LogicalExpr>()
+        val aggrExpr = mutableListOf<AggregateExpr>()
+        val numGroupCols = select.groupBy.size
+        var groupCount = 0
+
+        projectionExpr.forEach { expr ->
+            when (expr) {
+                is AggregateExpr -> {
+                    projection.add(ColumnIndex(numGroupCols + aggrExpr.size))
+                    aggrExpr.add(expr)
+                }
+
+                is Alias -> {
+                    projection.add(Alias(ColumnIndex(numGroupCols + aggrExpr.size), expr.alias))
+                    aggrExpr.add(expr.expr as AggregateExpr)
+                }
+
+                else -> {
+                    projection.add(ColumnIndex(groupCount))
+                    groupCount += 1
+                }
+            }
+        }
+        plan = planAggregateQuery(projectionExpr, select, columnNamesInSelection, plan, aggrExpr)
+        plan = plan.project(projection)
+        if (select.having != null) {
+            plan = plan.filter(createLogicalExpr(select.having, plan))
+        }
+        return plan
+    }
+}
+
+private fun isAggregateExpr(expr: LogicalExpr): Boolean {
+    // TODO implement this correctly .. this just handles aggregates and aliased aggregates
+    return when (expr) {
+        is AggregateExpr -> true
+        is Alias -> expr.expr is AggregateExpr
+        else -> false
+    }
+}
+
+private fun planNonAggregateQuery(
+    select: SqlSelect,
+    df: DataFrame,
+    projectionExpr: List<LogicalExpr>,
+    columnNamesInSelection: Set<String>,
+    columnNamesInProjection: Set<String>
+): DataFrame {
+
+    var plan = df
+    if (select.selection == null) {
+        return plan.project(projectionExpr)
+    }
+
+    val missing = (columnNamesInSelection - columnNamesInProjection)
+
+    // if the selection only references outputs from the projection we can simply apply the filter
+    // expression
+    // to the DataFrame representing the projection
+    if (missing.isEmpty()) {
+        plan = plan.project(projectionExpr)
+        plan = plan.filter(createLogicalExpr(select.selection, plan))
+    } else {
+
+        // because the selection references some columns that are not in the projection output we need
+        // to create an
+        // interim projection that has the additional columns and then we need to remove them after
+        // the selection
+        // has been applied
+        val n = projectionExpr.size
+
+        plan = plan.project(projectionExpr + missing.map { Column(it) })
+        plan = plan.filter(createLogicalExpr(select.selection, plan))
+
+        // drop the columns that were added for the selection
+        val expr = (0 until n).map { i -> Column(plan.schema().fields[i].name) }
+        plan = plan.project(expr)
+    }
+
+    return plan
+}
+
+private fun planAggregateQuery(
+    projectionExpr: List<LogicalExpr>,
+    select: SqlSelect,
+    columnNamesInSelection: Set<String>,
+    df: DataFrame,
+    aggregateExpr: List<AggregateExpr>
+): DataFrame {
+    var plan = df
+    val projectionWithoutAggregates = projectionExpr.filterNot { it is AggregateExpr }
+
+    if (select.selection != null) {
+
+        val columnNamesInProjectionWithoutAggregates =
+            getReferencedColumns(projectionWithoutAggregates)
+
+        val missing = (columnNamesInSelection - columnNamesInProjectionWithoutAggregates)
+
+        // if the selection only references outputs from the projection we can simply apply the filter
+        // expression
+        // to the DataFrame representing the projection
+        if (missing.isEmpty()) {
+            plan = plan.project(projectionWithoutAggregates)
+            plan = plan.filter(createLogicalExpr(select.selection, plan))
+        } else {
+            // because the selection references some columns that are not in the projection output we
+            // need to create an
+            // interim projection that has the additional columns and then we need to remove them after
+            // the selection
+            // has been applied
+            plan = plan.project(projectionWithoutAggregates + missing.map { Column(it) })
+            plan = plan.filter(createLogicalExpr(select.selection, plan))
+        }
+    }
+
+    val groupByExpr = select.groupBy.map { createLogicalExpr(it, plan) }
+    return plan.aggregate(groupByExpr, aggregateExpr)
+}
+
+private fun getColumnsReferencedBySelection(select: SqlSelect, table: DataFrame): Set<String> {
+    val accumulator = mutableSetOf<String>()
+    if (select.selection != null) {
+        var filterExpr = createLogicalExpr(select.selection, table)
+        visit(filterExpr, accumulator)
+        val validColumnNames = table.schema().fields.map { it.name }
+        accumulator.removeIf { name -> !validColumnNames.contains(name) }
+    }
+    return accumulator
+}
+
+private fun getReferencedColumns(exprs: List<LogicalExpr>): Set<String> {
+    val accumulator = mutableSetOf<String>()
+    exprs.forEach { visit(it, accumulator) }
+    return accumulator
+}
+
+private fun visit(expr: LogicalExpr, accumulator: MutableSet<String>) {
+    //        logger.info("BEFORE visit() $expr, accumulator=$accumulator")
+    when (expr) {
+        is Column -> accumulator.add(expr.name)
+        is Alias -> visit(expr.expr, accumulator)
+        is BinaryExpr -> {
+            visit(expr.l, accumulator)
+            visit(expr.r, accumulator)
+        }
+
+        is AggregateExpr -> visit(expr.expr, accumulator)
+    }
+    //        logger.info("AFTER visit() $expr, accumulator=$accumulator")
+}
+
 private fun createLogicalExpr(expr: SqlExpr, input: DataFrame): LogicalExpr {
     return when (expr) {
         is SqlIdentifier -> Column(expr.id)
-        is SqlAlias -> Alias(createLogicalExpr(expr.expr, input), expr.alias.id)
         is SqlString -> LiteralString(expr.value)
         is SqlLong -> LiteralLong(expr.value)
         is SqlDouble -> LiteralDouble(expr.value)
@@ -2447,6 +2678,11 @@ private fun createLogicalExpr(expr: SqlExpr, input: DataFrame): LogicalExpr {
                 else -> throw SQLException("Invalid operator ${expr.op}")
             }
         }
+        // is SqlUnaryExpr -> when (expr.op) {
+        // "NOT" -> Not(createLogicalExpr(expr.l, input))
+        // }
+        is SqlAlias -> Alias(createLogicalExpr(expr.expr, input), expr.alias.id)
+        is SqlCast -> CastExpr(createLogicalExpr(expr.expr, input), parseDataType(expr.dataType.id))
         is SqlFunction ->
             when (expr.id) {
                 "MIN" -> Min(createLogicalExpr(expr.args.first(), input))
@@ -2456,66 +2692,15 @@ private fun createLogicalExpr(expr: SqlExpr, input: DataFrame): LogicalExpr {
                 else -> throw SQLException("Invalid aggregate function: $expr")
             }
 
-        else -> throw UnsupportedOperationException()
+        else -> throw SQLException("Cannot create logical expression from sql expression: $expr")
     }
 }
 
-private fun visit(expr: LogicalExpr, accumulator: MutableSet<String>) {
-    when (expr) {
-        is Column -> accumulator.add(expr.name)
-        is Alias -> visit(expr.expr, accumulator)
-        is BinaryExpr -> {
-            visit(expr.l, accumulator)
-            visit(expr.r, accumulator)
-        }
+private fun parseDataType(id: String): ArrowType {
+    return when (id) {
+        "double" -> ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
+        else -> throw SQLException("Invalid data type $id")
     }
-}
-
-fun createDataFrame(select: SqlSelect, tables: Map<String, DataFrame>): DataFrame {
-
-    // get a reference to the data source
-    val df = tables[select.tableName] ?: throw SQLException("No table named '${select.tableName}'")
-
-    // create the logical expressions for the projection
-    val projectionExpr = select.projection.map { createLogicalExpr(it, df) }
-
-    if (select.selection == null) {
-        // if there is no selection then we can just return the projection
-        return df.project(projectionExpr)
-    }
-
-    // create the logical expression to represent the selection
-    val filterExpr = createLogicalExpr(select.selection, df)
-
-    // get a list of columns references in the projection expression
-    val columnsInProjection = projectionExpr
-        .map { it.toField(df.logicalPlan()).name }
-        .toSet()
-
-    // get a list of columns referenced in the selection expression
-    val columnNames = mutableSetOf<String>()
-    visit(filterExpr, columnNames)
-
-    // determine if the selection references any columns not in the projection
-    val missing = columnNames - columnsInProjection
-
-    // if the selection only references outputs from the projection we can
-    // simply apply the filter expression to the DataFrame representing
-    // the projection
-    if (missing.size == 0) {
-        return df.project(projectionExpr)
-            .filter(filterExpr)
-    }
-
-    // because the selection references some columns that are not in the
-    // projection output we need to create an interim projection that has
-    // the additional columns and then we need to remove them after the
-    // selection has been applied
-    return df.project(projectionExpr + missing.map { Column(it) })
-        .filter(filterExpr)
-        .project(projectionExpr.map {
-            Column(it.toField(df.logicalPlan()).name)
-        })
 }
 
 private fun plan(sql: String): LogicalPlan {
@@ -2693,39 +2878,43 @@ fun main() {
 //    doitPlan(plan)
 //    println(plan.toString())
 
-//    val result = executeQuery(".", 1, "SELECT PULocationID FROM tripdata")
-//    println(result)
+    val result = executeQuery(
+        ".",
+        1,
+        "SELECT store_and_fwd_flag, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY store_and_fwd_flag"
+    )
+    printQueryResult(result.asSequence())
 
-    val start = System.currentTimeMillis()
-    val deferred = (1..2).map {month ->
-        GlobalScope.async {
+//    val start = System.currentTimeMillis()
+//    val deferred = (1..2).map {month ->
+//        GlobalScope.async {
+//
+//            val sql = "SELECT passenger_count, MAX(max_fare) FROM tripdata " +
+//                    "GROUP BY passenger_count"
+//
+//            val start = System.currentTimeMillis()
+//            val result = executeQuery(".", month, sql)
+//            val duration = System.currentTimeMillis() - start
+//            println("Query against month $month took $duration ms")
+//            result
+//        }
+//    }
+//    val results: List<RecordBatch> = runBlocking {
+//        deferred.flatMap { it.await() }
+//    }
+//    val duration = System.currentTimeMillis() - start
+//    println("Collected ${results.size} batches in $duration ms")
+//
+//    val sql = "SELECT passenger_count, MAX(max_fare) " +
+//            "FROM tripdata " +
+//            "GROUP BY passenger_count"
+//
+//    val ctx = ExecutionContext()
+//    ctx.registerDataSource("tripdata", InMemoryDataSource(results.first().schema, results))
+//    val df = ctx.sql(sql)
+//    val result = ctx.execute(df)
 
-            val sql = "SELECT passenger_count FROM tripdata " +
-                    "GROUP BY passenger_count"
-
-            val start = System.currentTimeMillis()
-            val result = executeQuery(".", month, sql)
-            val duration = System.currentTimeMillis() - start
-            println("Query against month $month took $duration ms")
-            result
-        }
-    }
-    val results: List<RecordBatch> = runBlocking {
-        deferred.flatMap { it.await() }
-    }
-    val duration = System.currentTimeMillis() - start
-    println("Collected ${results.size} batches in $duration ms")
-
-    val sql = "SELECT passenger_count " +
-            "FROM tripdata " +
-            "GROUP BY passenger_count"
-
-    val ctx = ExecutionContext()
-    ctx.registerDataSource("tripdata", InMemoryDataSource(results.first().schema, results))
-    val df = ctx.sql(sql)
-    val result = ctx.execute(df)
-
-    printQueryResult(result)
+//    printQueryResult(result)
 }
 
 private fun doit(yellowCab: DataFrame) {
