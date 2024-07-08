@@ -2379,6 +2379,124 @@ class SqlParser(val tokens: SqlTokenizer.TokenStream) : PrattParser {
     }
 }
 
+private fun createLogicalExpr(expr: SqlExpr, input: DataFrame): LogicalExpr {
+    return when (expr) {
+        is SqlIdentifier -> Column(expr.id)
+        is SqlAlias -> Alias(createLogicalExpr(expr.expr, input), expr.alias.id)
+        is SqlString -> LiteralString(expr.value)
+        is SqlLong -> LiteralLong(expr.value)
+        is SqlDouble -> LiteralDouble(expr.value)
+        is SqlBinaryExpr -> {
+            val l = createLogicalExpr(expr.l, input)
+            val r = createLogicalExpr(expr.r, input)
+            when (expr.op) {
+                // comparison operators
+                "=" -> Eq(l, r)
+                "!=" -> Neq(l, r)
+                ">" -> Gt(l, r)
+                ">=" -> GtEq(l, r)
+                "<" -> Lt(l, r)
+                "<=" -> LtEq(l, r)
+                // boolean operators
+                "AND" -> And(l, r)
+                "OR" -> Or(l, r)
+                // math operators
+                "+" -> Add(l, r)
+                "-" -> Subtract(l, r)
+                "*" -> Multiply(l, r)
+                "/" -> Divide(l, r)
+                "%" -> Modulus(l, r)
+                else -> throw SQLException("Invalid operator ${expr.op}")
+            }
+        }
+
+        else -> throw UnsupportedOperationException()
+    }
+}
+
+private fun visit(expr: LogicalExpr, accumulator: MutableSet<String>) {
+    when (expr) {
+        is Column -> accumulator.add(expr.name)
+        is Alias -> visit(expr.expr, accumulator)
+        is BinaryExpr -> {
+            visit(expr.l, accumulator)
+            visit(expr.r, accumulator)
+        }
+    }
+}
+
+fun createDataFrame(select: SqlSelect, tables: Map<String, DataFrame>): DataFrame {
+
+    // get a reference to the data source
+    val df = tables[select.tableName] ?: throw SQLException("No table named '${select.tableName}'")
+
+    // create the logical expressions for the projection
+    val projectionExpr = select.projection.map { createLogicalExpr(it, df) }
+
+    if (select.selection == null) {
+        // if there is no selection then we can just return the projection
+        return df.project(projectionExpr)
+    }
+
+    // create the logical expression to represent the selection
+    val filterExpr = createLogicalExpr(select.selection, df)
+
+    // get a list of columns references in the projection expression
+    val columnsInProjection = projectionExpr
+        .map { it.toField(df.logicalPlan()).name }
+        .toSet()
+
+    // get a list of columns referenced in the selection expression
+    val columnNames = mutableSetOf<String>()
+    visit(filterExpr, columnNames)
+
+    // determine if the selection references any columns not in the projection
+    val missing = columnNames - columnsInProjection
+
+    // if the selection only references outputs from the projection we can
+    // simply apply the filter expression to the DataFrame representing
+    // the projection
+    if (missing.size == 0) {
+        return df.project(projectionExpr)
+            .filter(filterExpr)
+    }
+
+    // because the selection references some columns that are not in the
+    // projection output we need to create an interim projection that has
+    // the additional columns and then we need to remove them after the
+    // selection has been applied
+    return df.project(projectionExpr + missing.map { Column(it) })
+        .filter(filterExpr)
+        .project(projectionExpr.map {
+            Column(it.toField(df.logicalPlan()).name)
+        })
+}
+
+private fun plan(sql: String): LogicalPlan {
+    println("parse() $sql")
+
+    val tokens = SqlTokenizer(sql).tokenize()
+    println(tokens)
+
+    val parsedQuery = SqlParser(tokens).parse()
+    println(parsedQuery)
+
+    val tables =
+        mapOf(
+            "employee" to
+                    DataFrameImpl(Scan("", CsvDataSource("employee.csv", true, 1024, null), listOf1())),
+            "yello" to
+                    DataFrameImpl(Scan("", CsvDataSource("yellow_tripdata_2024-01.csv", true, 1024, null), listOf1()))
+        )
+
+    val df = createDataFrame(parsedQuery as SqlSelect, tables)
+
+    val plan = df.logicalPlan()
+    println(format(plan))
+
+    return plan
+}
+
 fun main() {
 
     // Here is some verbose code for building a plan for the query
@@ -2485,14 +2603,27 @@ fun main() {
 
 //    val sqlExpr = SqlBinaryExpr(SqlIdentifier("foo"), "=", SqlString("bar"))
 
-    val sql = "1 + 2 * 3";
+//    val sql = "1 + 2 * 3";
+    val sql = "SELECT foo, bar FROM lullaby WHERE foo = bar";
     println("parse() $sql")
     val tokens = SqlTokenizer(sql).tokenize()
     println(tokens)
     val parsedQuery = SqlParser(tokens).parse()
     println(parsedQuery)
 
-    
+    // id,first_name,last_name,state,job_title,salary
+    // 1,Matte,Johansson,Uppsala,Engineer,1337
+    // 2,Other,Person,Uppsala,Worker,666
+    // 3,Pelle,Pärsson,Sthlm,Unemployed,0
+    val plan = plan("SELECT first_name FROM employee WHERE state = 'Uppsala'")
+    doitPlan(plan)
+    println(plan.toString())
+
+//    val plan = plan("SELECT passenger_count FROM yello WHERE PULocationID = '148'")
+//    doitPlan(plan)
+//    println(plan.toString())
+
+
 }
 
 private fun doit(yellowCab: DataFrame) {
@@ -2500,6 +2631,18 @@ private fun doit(yellowCab: DataFrame) {
     println("going yello")
 //    val optimizedYellowCab = ProjectionPushDownRule().optimize(yellowCab.logicalPlan())
     val optimizedPhysicalPlan = createPhysicalPlan(yellowCab.logicalPlan())
+//    println(formatPhysical(optimizedPhysicalPlan))
+    consumeQueryResult(optimizedPhysicalPlan.execute())
+    val elapsed = System.currentTimeMillis() - start;
+    println("done in $elapsed ms")
+    printQueryResult(optimizedPhysicalPlan.execute())
+}
+
+private fun doitPlan(plan: LogicalPlan) {
+    val start = System.currentTimeMillis()
+    println("going plan brrrrrrr")
+//    val optimizedYellowCab = ProjectionPushDownRule().optimize(yellowCab.logicalPlan())
+    val optimizedPhysicalPlan = createPhysicalPlan(plan)
 //    println(formatPhysical(optimizedPhysicalPlan))
     consumeQueryResult(optimizedPhysicalPlan.execute())
     val elapsed = System.currentTimeMillis() - start;
