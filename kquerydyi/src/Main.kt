@@ -1,5 +1,8 @@
 import com.univocity.parsers.csv.CsvParser
 import com.univocity.parsers.csv.CsvParserSettings
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.runBlocking
 import org.apache.arrow.memory.RootAllocator
 import org.apache.arrow.vector.*
 import org.apache.arrow.vector.types.FloatingPointPrecision
@@ -611,10 +614,40 @@ class DataFrameImpl(private val plan: LogicalPlan) : DataFrame {
 }
 
 class ExecutionContext {
+    private val tables = mutableMapOf<String, DataFrame>()
+
+    fun sql(sql: String): DataFrame {
+        val tokens = SqlTokenizer(sql).tokenize()
+        val ast = SqlParser(tokens).parse() as SqlSelect
+        val df = createDataFrame(ast, tables)
+        return DataFrameImpl(df.logicalPlan())
+    }
+
     fun csv(filename: String): DataFrame {
         return DataFrameImpl(Scan(filename, CsvDataSource(filename, true, 1000, null), listOf1()))
     }
 
+    fun register(tablename: String, df: DataFrame) {
+        tables[tablename] = df
+    }
+
+    fun registerCsv(tablename: String, filename: String) {
+        register(tablename, csv(filename))
+    }
+
+    /** Execute the logical plan represented by a DataFrame */
+    fun execute(df: DataFrame): Sequence<RecordBatch> {
+        return execute(df.logicalPlan())
+    }
+
+    /** Execute the provided logical plan */
+    fun execute(plan: LogicalPlan): Sequence<RecordBatch> {
+//        val optimizedPlan = Optimizer().optimize(plan)
+//        val physicalPlan = QueryPlanner().createPhysicalPlan(optimizedPlan)
+        val optimizedPlan = ProjectionPushDownRule().optimize(plan)
+        val physicalPlan = createPhysicalPlan(optimizedPlan)
+        return physicalPlan.execute()
+    }
     /// fun parquet
 }
 
@@ -2497,6 +2530,15 @@ private fun plan(sql: String): LogicalPlan {
     return plan
 }
 
+fun executeQuery(path: String, month: Int, sql: String): List<RecordBatch> {
+    val monthStr = String.format("%02d", month);
+    val filename = "$path/yellow_tripdata_2024-$monthStr.csv"
+    val ctx = ExecutionContext()
+    ctx.registerCsv("tripdata", filename)
+    val df = ctx.sql(sql)
+    return ctx.execute(df).toList()
+}
+
 fun main() {
 
     // Here is some verbose code for building a plan for the query
@@ -2604,25 +2646,47 @@ fun main() {
 //    val sqlExpr = SqlBinaryExpr(SqlIdentifier("foo"), "=", SqlString("bar"))
 
 //    val sql = "1 + 2 * 3";
-    val sql = "SELECT foo, bar FROM lullaby WHERE foo = bar";
-    println("parse() $sql")
-    val tokens = SqlTokenizer(sql).tokenize()
-    println(tokens)
-    val parsedQuery = SqlParser(tokens).parse()
-    println(parsedQuery)
+//    val sql = "SELECT foo, bar FROM lullaby WHERE foo = bar";
+//    println("parse() $sql")
+//    val tokens = SqlTokenizer(sql).tokenize()
+//    println(tokens)
+//    val parsedQuery = SqlParser(tokens).parse()
+//    println(parsedQuery)
 
     // id,first_name,last_name,state,job_title,salary
     // 1,Matte,Johansson,Uppsala,Engineer,1337
     // 2,Other,Person,Uppsala,Worker,666
     // 3,Pelle,Pärsson,Sthlm,Unemployed,0
-    val plan = plan("SELECT first_name FROM employee WHERE state = 'Uppsala'")
-    doitPlan(plan)
-    println(plan.toString())
+//    val plan = plan("SELECT first_name FROM employee WHERE state = 'Uppsala'")
+//    doitPlan(plan)
+//    println(plan.toString())
 
 //    val plan = plan("SELECT passenger_count FROM yello WHERE PULocationID = '148'")
 //    doitPlan(plan)
 //    println(plan.toString())
 
+//    val result = executeQuery(".", 1, "SELECT PULocationID FROM tripdata")
+//    println(result)
+
+    val start = System.currentTimeMillis()
+    val deferred = (1..2).map {month ->
+        GlobalScope.async {
+
+            val sql = "SELECT passenger_count FROM tripdata " +
+                    "GROUP BY passenger_count"
+
+            val start = System.currentTimeMillis()
+            val result = executeQuery(".", month, sql)
+            val duration = System.currentTimeMillis() - start
+            println("Query against month $month took $duration ms")
+            result
+        }
+    }
+    val results: List<RecordBatch> = runBlocking {
+        deferred.flatMap { it.await() }
+    }
+    val duration = System.currentTimeMillis() - start
+    println("Collected ${results.size} batches in $duration ms")
 
 }
 
