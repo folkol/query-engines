@@ -1506,16 +1506,876 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
     }
 }
 
-interface Token
-data class IdentifierToken(val s: String) : Token
-data class LiteralStringToken(val s: String) : Token
-data class LiteralLongToken(val s: String) : Token
-data class KeywordToken(val s: String) : Token
-data class OperatorToken(val s: String) : Token
+//interface Token
+//data class IdentifierToken(val s: String) : Token
+//data class LiteralStringToken(val s: String) : Token
+//data class LiteralLongToken(val s: String) : Token
+//data class KeywordToken(val s: String) : Token
+//data class OperatorToken(val s: String) : Token
 
-class Tokenizer(val sql: String) {
-    fun tokenize(): List<Token> {
-        return emptyList()
+
+//class Tokenizer(val sql: String) {
+//    fun tokenize(): List<Token> {
+//        return emptyList()
+//    }
+//}
+
+
+enum class Keyword : SqlTokenizer.TokenType {
+
+    /**
+     * common
+     */
+    SCHEMA,
+    DATABASE,
+    TABLE,
+    COLUMN,
+    VIEW,
+    INDEX,
+    TRIGGER,
+    PROCEDURE,
+    TABLESPACE,
+    FUNCTION,
+    SEQUENCE,
+    CURSOR,
+    FROM,
+    TO,
+    OF,
+    IF,
+    ON,
+    FOR,
+    WHILE,
+    DO,
+    NO,
+    BY,
+    WITH,
+    WITHOUT,
+    TRUE,
+    FALSE,
+    TEMPORARY,
+    TEMP,
+    COMMENT,
+
+    /**
+     * create
+     */
+    CREATE,
+    REPLACE,
+    BEFORE,
+    AFTER,
+    INSTEAD,
+    EACH,
+    ROW,
+    STATEMENT,
+    EXECUTE,
+    BITMAP,
+    NOSORT,
+    REVERSE,
+    COMPILE,
+
+    /**
+     * alter
+     */
+    ALTER,
+    ADD,
+    MODIFY,
+    RENAME,
+    ENABLE,
+    DISABLE,
+    VALIDATE,
+    USER,
+    IDENTIFIED,
+
+    /**
+     * truncate
+     */
+    TRUNCATE,
+
+    /**
+     * drop
+     */
+    DROP,
+    CASCADE,
+
+    /**
+     * insert
+     */
+    INSERT,
+    INTO,
+    VALUES,
+
+    /**
+     * update
+     */
+    UPDATE,
+    SET,
+
+    /**
+     * delete
+     */
+    DELETE,
+
+    /**
+     * select
+     */
+    SELECT,
+    DISTINCT,
+    AS,
+    CASE,
+    WHEN,
+    ELSE,
+    THEN,
+    END,
+    LEFT,
+    RIGHT,
+    FULL,
+    INNER,
+    OUTER,
+    CROSS,
+    JOIN,
+    USE,
+    USING,
+    NATURAL,
+    WHERE,
+    ORDER,
+    ASC,
+    DESC,
+    GROUP,
+    HAVING,
+    UNION,
+
+    /**
+     * others
+     */
+    DECLARE,
+    GRANT,
+    FETCH,
+    REVOKE,
+    CLOSE,
+    CAST,
+    NEW,
+    ESCAPE,
+    LOCK,
+    SOME,
+    LEAVE,
+    ITERATE,
+    REPEAT,
+    UNTIL,
+    OPEN,
+    OUT,
+    INOUT,
+    OVER,
+    ADVISE,
+    SIBLINGS,
+    LOOP,
+    EXPLAIN,
+    DEFAULT,
+    EXCEPT,
+    INTERSECT,
+    MINUS,
+    PASSWORD,
+    LOCAL,
+    GLOBAL,
+    STORAGE,
+    DATA,
+    COALESCE,
+
+    /**
+     * Types
+     */
+    CHAR,
+    CHARACTER,
+    VARYING,
+    VARCHAR,
+    VARCHAR2,
+    INTEGER,
+    INT,
+    SMALLINT,
+    DECIMAL,
+    DEC,
+    NUMERIC,
+    FLOAT,
+    REAL,
+    DOUBLE,
+    PRECISION,
+    DATE,
+    TIME,
+    INTERVAL,
+    BOOLEAN,
+    BLOB,
+
+    /**
+     * Conditionals
+     */
+    AND,
+    OR,
+    XOR,
+    IS,
+    NOT,
+    NULL,
+    IN,
+    BETWEEN,
+    LIKE,
+    ANY,
+    ALL,
+    EXISTS,
+
+    /**
+     * Functions
+     */
+    AVG,
+    MAX,
+    MIN,
+    SUM,
+    COUNT,
+    GREATEST,
+    LEAST,
+    ROUND,
+    TRUNC,
+    POSITION,
+    EXTRACT,
+    LENGTH,
+    CHAR_LENGTH,
+    SUBSTRING,
+    SUBSTR,
+    INSTR,
+    INITCAP,
+    UPPER,
+    LOWER,
+    TRIM,
+    LTRIM,
+    RTRIM,
+    BOTH,
+    LEADING,
+    TRAILING,
+    TRANSLATE,
+    CONVERT,
+    LPAD,
+    RPAD,
+    DECODE,
+    NVL,
+
+    /**
+     * Constraints
+     */
+    CONSTRAINT,
+    UNIQUE,
+    PRIMARY,
+    FOREIGN,
+    KEY,
+    CHECK,
+    REFERENCES;
+
+    companion object {
+        private val keywords = values().associateBy(Keyword::name)
+        fun textOf(text: String) = keywords[text.toUpperCase()]
+    }
+}
+
+enum class Symbol(val text: String) : SqlTokenizer.TokenType {
+
+    LEFT_PAREN("("),
+    RIGHT_PAREN(")"),
+    LEFT_BRACE("{"),
+    RIGHT_BRACE("}"),
+    LEFT_BRACKET("["),
+    RIGHT_BRACKET("]"),
+    SEMI(";"),
+    COMMA(","),
+    DOT("."),
+    DOUBLE_DOT(".."),
+    PLUS("+"),
+    SUB("-"),
+    STAR("*"),
+    SLASH("/"),
+    QUESTION("?"),
+    EQ("="),
+    GT(">"),
+    LT("<"),
+    BANG("!"),
+    TILDE("~"),
+    CARET("^"),
+    PERCENT("%"),
+    COLON(":"),
+    DOUBLE_COLON("::"),
+    COLON_EQ(":="),
+    LT_EQ("<="),
+    GT_EQ(">="),
+    LT_EQ_GT("<=>"),
+    LT_GT("<>"),
+    BANG_EQ("!="),
+    BANG_GT("!>"),
+    BANG_LT("!<"),
+    AMP("&"),
+    BAR("|"),
+    DOUBLE_AMP("&&"),
+    DOUBLE_BAR("||"),
+    DOUBLE_LT("<<"),
+    DOUBLE_GT(">>"),
+    AT("@"),
+    POUND("#");
+
+    companion object {
+        private val symbols = values().associateBy(Symbol::text)
+        private val symbolStartSet = values().flatMap { s -> s.text.toList() }.toSet()
+        fun textOf(text: String) = symbols[text]
+        fun isSymbol(ch: Char): Boolean {
+            return symbolStartSet.contains(ch)
+        }
+
+        fun isSymbolStart(ch: Char): Boolean {
+            return isSymbol(ch)
+        }
+    }
+}
+
+data class Token(
+    val text: String,
+    val type: SqlTokenizer.TokenType,
+    val endOffset: Int
+) {
+
+    override fun toString(): String {
+        val typeType = when (type) {
+            is Keyword -> "Keyword"
+            is Symbol -> "Symbol"
+            is SqlTokenizer.Literal -> "Literal"
+            else -> ""
+        }
+        return "Token(\"$text\", $typeType.$type, $endOffset)"
+    }
+}
+
+class SqlTokenizer(val sql: String) {
+
+    // TODO this whole class is pretty crude and needs a lot of attention + unit tests (Hint: this
+    // would be a great
+    // place to start contributing!)
+
+    var offset = 0
+
+    class TokenStream(val tokens: List<Token>) {
+
+        private val logger = Logger.getLogger(TokenStream::class.simpleName)
+
+        var i = 0
+
+        fun peek(): Token? {
+            if (i < tokens.size) {
+                return tokens[i]
+            } else {
+                return null
+            }
+        }
+
+        fun next(): Token? {
+            if (i < tokens.size) {
+                return tokens[i++]
+            } else {
+                return null
+            }
+        }
+
+        fun consumeKeywords(s: List<String>): Boolean {
+            val save = i
+            s.forEach { keyword ->
+                if (!consumeKeyword(keyword)) {
+                    i = save
+                    return false
+                }
+            }
+            return true
+        }
+
+        fun consumeKeyword(s: String): Boolean {
+            val peek = peek()
+            logger.fine("consumeKeyword('$s') next token is $peek")
+            return if (peek?.type is Keyword && peek.text == s) {
+                i++
+                logger.fine("consumeKeyword() returning true")
+                true
+            } else {
+                logger.fine("consumeKeyword() returning false")
+                false
+            }
+        }
+
+        fun consumeTokenType(t: TokenType): Boolean {
+            val peek = peek()
+            return if (peek?.type == t) {
+                i++
+                true
+            } else {
+                false
+            }
+        }
+
+        override fun toString(): String {
+            return tokens.withIndex()
+                .map { (index, token) ->
+                    if (index == i) {
+                        "*$token"
+                    } else {
+                        token.toString()
+                    }
+                }
+                .joinToString(" ")
+        }
+    }
+
+    fun tokenize(): TokenStream {
+        var token = nextToken()
+        val list = mutableListOf<Token>()
+        while (token != null) {
+            list.add(token)
+            token = nextToken()
+        }
+        return TokenStream(list)
+    }
+
+    interface TokenType
+
+    enum class Literal : TokenType {
+        LONG,
+        DOUBLE,
+        STRING,
+        IDENTIFIER;
+
+        companion object {
+            fun isNumberStart(ch: Char): Boolean {
+                return ch.isDigit() || '.' == ch
+            }
+
+            fun isIdentifierStart(ch: Char): Boolean {
+                return ch.isLetter()
+            }
+
+            fun isIdentifierPart(ch: Char): Boolean {
+                return ch.isLetter() || ch.isDigit() || ch == '_'
+            }
+
+            fun isCharsStart(ch: Char): Boolean {
+                return '\'' == ch || '"' == ch
+            }
+        }
+    }
+
+    private fun nextToken(): Token? {
+        offset = skipWhitespace(offset)
+        var token: Token? = null
+        when {
+            offset >= sql.length -> {
+                return token
+            }
+
+            Literal.isIdentifierStart(sql[offset]) -> {
+                token = scanIdentifier(offset)
+                offset = token.endOffset
+            }
+
+            Literal.isNumberStart(sql[offset]) -> {
+                token = scanNumber(offset)
+                offset = token.endOffset
+            }
+
+            Symbol.isSymbolStart(sql[offset]) -> {
+                token = scanSymbol(offset)
+                offset = token.endOffset
+            }
+
+            Literal.isCharsStart(sql[offset]) -> {
+                token = scanChars(offset, sql[offset])
+                offset = token.endOffset
+            }
+        }
+        return token
+    }
+
+    /**
+     * skip whitespace.
+     * @return offset after whitespace skipped
+     */
+    private fun skipWhitespace(startOffset: Int): Int {
+        return sql.indexOfFirst(startOffset) { ch -> !ch.isWhitespace() }
+    }
+
+    /**
+     * scan number.
+     *
+     * @return number token
+     */
+    private fun scanNumber(startOffset: Int): Token {
+        var endOffset = if ('-' == sql[startOffset]) {
+            sql.indexOfFirst(startOffset + 1) { ch -> !ch.isDigit() }
+        } else {
+            sql.indexOfFirst(startOffset) { ch -> !ch.isDigit() }
+        }
+        if (endOffset == sql.length) {
+            return Token(sql.substring(startOffset, endOffset), Literal.LONG, endOffset)
+        }
+        val isFloat = '.' == sql[endOffset]
+        if (isFloat) {
+            endOffset = sql.indexOfFirst(endOffset + 1) { ch -> !ch.isDigit() }
+        }
+        return Token(sql.substring(startOffset, endOffset), if (isFloat) Literal.DOUBLE else Literal.LONG, endOffset)
+    }
+
+    /**
+     * scan identifier.
+     *
+     * @return identifier token
+     */
+    private fun scanIdentifier(startOffset: Int): Token {
+        if ('`' == sql[startOffset]) {
+            val endOffset: Int = getOffsetUntilTerminatedChar('`', startOffset)
+            return Token(sql.substring(offset, endOffset), Literal.IDENTIFIER, endOffset)
+        }
+        val endOffset = sql.indexOfFirst(startOffset) { ch -> !Literal.isIdentifierPart(ch) }
+        val text: String = sql.substring(startOffset, endOffset)
+        return if (isAmbiguousIdentifier(text)) {
+            Token(text, processAmbiguousIdentifier(endOffset, text), endOffset)
+        } else {
+            val tokenType: TokenType = Keyword.textOf(text) ?: Literal.IDENTIFIER
+            Token(text, tokenType, endOffset)
+        }
+    }
+
+    /**
+     * table name: group / order
+     * keyword: group by / order by
+     *
+     * @return
+     */
+    private fun isAmbiguousIdentifier(text: String): Boolean {
+        return Keyword.ORDER.name.equals(text, true) || Keyword.GROUP.name.equals(text, true)
+    }
+
+    /**
+     * process group by | order by
+     */
+    private fun processAmbiguousIdentifier(startOffset: Int, text: String): TokenType {
+        val skipWhitespaceOffset = skipWhitespace(startOffset)
+        return if (skipWhitespaceOffset != sql.length
+            && Keyword.BY.name.equals(sql.substring(skipWhitespaceOffset, skipWhitespaceOffset + 2), true)
+        )
+            Keyword.textOf(text)!! else Literal.IDENTIFIER
+    }
+
+    /**
+     *  find another char's offset equals terminatedChar
+     */
+    private fun getOffsetUntilTerminatedChar(terminatedChar: Char, startOffset: Int): Int {
+        val offset = sql.indexOf(terminatedChar, startOffset)
+        return if (offset != -1) offset else
+            throw TokenizeException("Must contain $terminatedChar in remain sql[$startOffset .. end]")
+    }
+
+    /**
+     * scan symbol.
+     *
+     * @return symbol token
+     */
+    private fun scanSymbol(startOffset: Int): Token {
+        var endOffset = sql.indexOfFirst(startOffset) { ch -> !Symbol.isSymbol(ch) }
+        var text = sql.substring(offset, endOffset)
+        var symbol: Symbol?
+        while (null == Symbol.textOf(text).also { symbol = it }) {
+            text = sql.substring(offset, --endOffset)
+        }
+        return Token(text, symbol ?: throw TokenizeException("$text Must be a Symbol!"), endOffset)
+    }
+
+    /**
+     * scan chars like 'abc' or "abc"
+     */
+    private fun scanChars(startOffset: Int, terminatedChar: Char): Token {
+        val endOffset = getOffsetUntilTerminatedChar(terminatedChar, startOffset + 1)
+        return Token(sql.substring(startOffset + 1, endOffset), Literal.STRING, endOffset + 1)
+    }
+
+    private inline fun CharSequence.indexOfFirst(startIndex: Int = 0, predicate: (Char) -> Boolean): Int {
+        for (index in startIndex until this.length) {
+            if (predicate(this[index])) {
+                return index
+            }
+        }
+        return sql.length
+    }
+}
+
+class TokenizeException(val msg: String) : Throwable()
+
+interface SqlExpr
+
+/** Pratt Top Down Operator Precedence Parser. See https://tdop.github.io/ for paper. */
+interface PrattParser {
+
+    /** Parse an expression */
+    fun parse(precedence: Int = 0): SqlExpr? {
+        var expr = parsePrefix() ?: return null
+        while (precedence < nextPrecedence()) {
+            expr = parseInfix(expr, nextPrecedence())
+        }
+        return expr
+    }
+
+    /** Get the precedence of the next token */
+    fun nextPrecedence(): Int
+
+    /** Parse the next prefix expression */
+    fun parsePrefix(): SqlExpr?
+
+    /** Parse the next infix expression */
+    fun parseInfix(left: SqlExpr, precedence: Int): SqlExpr
+}
+
+/** Simple SQL identifier such as a table or column name */
+data class SqlIdentifier(val id: String) : SqlExpr {
+    override fun toString() = id
+}
+
+/** Binary expression */
+data class SqlBinaryExpr(val l: SqlExpr, val op: String, val r: SqlExpr) : SqlExpr {
+    override fun toString(): String = "$l $op $r"
+}
+
+/** SQL literal string */
+data class SqlString(val value: String) : SqlExpr {
+    override fun toString() = "'$value'"
+}
+
+/** SQL literal long */
+data class SqlLong(val value: Long) : SqlExpr {
+    override fun toString() = "$value"
+}
+
+/** SQL literal double */
+data class SqlDouble(val value: Double) : SqlExpr {
+    override fun toString() = "$value"
+}
+
+/** SQL function call */
+data class SqlFunction(val id: String, val args: List<SqlExpr>) : SqlExpr {
+    override fun toString() = id
+}
+
+/** SQL aliased expression */
+data class SqlAlias(val expr: SqlExpr, val alias: SqlIdentifier) : SqlExpr
+
+data class SqlCast(val expr: SqlExpr, val dataType: SqlIdentifier) : SqlExpr
+
+data class SqlSort(val expr: SqlExpr, val asc: Boolean) : SqlExpr
+
+interface SqlRelation : SqlExpr
+
+data class SqlSelect(
+    val projection: List<SqlExpr>,
+    val selection: SqlExpr?,
+    val groupBy: List<SqlExpr>,
+    val orderBy: List<SqlExpr>,
+    val having: SqlExpr?,
+    val tableName: String
+) : SqlRelation
+
+class SqlParser(val tokens: SqlTokenizer.TokenStream) : PrattParser {
+
+    private val logger = Logger.getLogger(SqlParser::class.simpleName)
+
+    override fun nextPrecedence(): Int {
+        val token = tokens.peek() ?: return 0
+        val precedence =
+            when (token.type) {
+                // Keywords
+                Keyword.AS, Keyword.ASC, Keyword.DESC -> 10
+                Keyword.OR -> 20
+                Keyword.AND -> 30
+
+                // Symbols
+                Symbol.LT, Symbol.LT_EQ, Symbol.EQ,
+                Symbol.BANG_EQ, Symbol.GT_EQ, Symbol.GT -> 40
+
+                Symbol.PLUS, Symbol.SUB -> 50
+                Symbol.STAR, Symbol.SLASH -> 60
+
+                Symbol.LEFT_PAREN -> 70
+                else -> 0
+            }
+        logger.fine("nextPrecedence($token) returning $precedence")
+        return precedence
+    }
+
+    override fun parsePrefix(): SqlExpr? {
+        logger.fine("parsePrefix() next token = ${tokens.peek()}")
+        val token = tokens.next() ?: return null
+        val expr =
+            when (token.type) {
+                // Keywords
+                Keyword.SELECT -> parseSelect()
+                Keyword.CAST -> parseCast()
+
+                Keyword.MAX -> SqlIdentifier(token.text)
+
+                // type
+                Keyword.INT -> SqlIdentifier(token.text)
+                Keyword.DOUBLE -> SqlIdentifier(token.text)
+
+                // Literals
+                SqlTokenizer.Literal.IDENTIFIER -> SqlIdentifier(token.text)
+                SqlTokenizer.Literal.STRING -> SqlString(token.text)
+                SqlTokenizer.Literal.LONG -> SqlLong(token.text.toLong())
+                SqlTokenizer.Literal.DOUBLE -> SqlDouble(token.text.toDouble())
+                else -> throw IllegalStateException("Unexpected token $token")
+            }
+        logger.fine("parsePrefix() returning $expr")
+        return expr
+    }
+
+    override fun parseInfix(left: SqlExpr, precedence: Int): SqlExpr {
+        logger.fine("parseInfix() next token = ${tokens.peek()}")
+        val token = tokens.peek()!!
+        val expr =
+            when (token.type) {
+                Symbol.PLUS, Symbol.SUB, Symbol.STAR, Symbol.SLASH,
+                Symbol.EQ, Symbol.GT, Symbol.LT -> {
+                    tokens.next() // consume the token
+                    SqlBinaryExpr(
+                        left, token.text, parse(precedence) ?: throw SQLException("Error parsing infix")
+                    )
+                }
+
+                // keywords
+                Keyword.AS -> {
+                    tokens.next() // consume the token
+                    SqlAlias(left, parseIdentifier())
+                }
+
+                Keyword.AND, Keyword.OR -> {
+                    tokens.next() // consume the token
+                    SqlBinaryExpr(
+                        left,
+                        token.text,
+                        parse(precedence) ?: throw SQLException("Error parsing infix")
+                    )
+                }
+
+                Keyword.ASC, Keyword.DESC -> {
+                    tokens.next()
+                    SqlSort(left, token.type == Keyword.ASC)
+                }
+
+
+                Symbol.LEFT_PAREN -> {
+                    if (left is SqlIdentifier) {
+                        tokens.next() // consume the token
+                        val args = parseExprList()
+                        assert(tokens.next()?.type == Symbol.RIGHT_PAREN)
+                        SqlFunction(left.id, args)
+                    } else {
+                        throw IllegalStateException("Unexpected LPAREN")
+                    }
+                }
+
+                else -> throw IllegalStateException("Unexpected infix token $token")
+            }
+        logger.fine("parseInfix() returning $expr")
+        return expr
+    }
+
+    private fun parseOrder(): List<SqlSort> {
+        val sortList = mutableListOf<SqlSort>()
+        var sort = parseExpr()
+        while (sort != null) {
+            sort = when (sort) {
+                is SqlIdentifier -> SqlSort(sort, true)
+                is SqlSort -> sort
+                else -> throw java.lang.IllegalStateException("Unexpected expression $sort after order by.")
+            }
+            sortList.add(sort)
+
+            if (tokens.peek()?.type == Symbol.COMMA) {
+                tokens.next()
+            } else {
+                break
+            }
+            sort = parseExpr()
+        }
+        return sortList
+    }
+
+    private fun parseCast(): SqlCast {
+        assert(tokens.consumeTokenType(Symbol.LEFT_PAREN))
+        val expr = parseExpr() ?: throw SQLException()
+        val alias = expr as SqlAlias
+        assert(tokens.consumeTokenType(Symbol.RIGHT_PAREN))
+        return SqlCast(alias.expr, alias.alias)
+    }
+
+    private fun parseSelect(): SqlSelect {
+        val projection = parseExprList()
+
+        if (tokens.consumeKeyword("FROM")) {
+            val table = parseExpr() as SqlIdentifier
+
+            // parse optional WHERE clause
+            var filterExpr: SqlExpr? = null
+            if (tokens.consumeKeyword("WHERE")) {
+                filterExpr = parseExpr()
+            }
+
+            // parse optional GROUP BY clause
+            var groupBy: List<SqlExpr> = listOf1()
+            if (tokens.consumeKeywords(listOf1("GROUP", "BY"))) {
+                groupBy = parseExprList()
+            }
+
+            // parse optional HAVING clause
+            var havingExpr: SqlExpr? = null
+            if (tokens.consumeKeyword("HAVING")) {
+                havingExpr = parseExpr()
+            }
+
+            // parse optional ORDER BY clause
+            var orderBy: List<SqlExpr> = listOf1()
+            if (tokens.consumeKeywords(listOf1("ORDER", "BY"))) {
+                orderBy = parseOrder()
+            }
+
+            return SqlSelect(projection, filterExpr, groupBy, orderBy, havingExpr, table.id)
+        } else {
+            throw IllegalStateException("Expected FROM keyword, found ${tokens.peek()}")
+        }
+    }
+
+    private fun parseExprList(): List<SqlExpr> {
+        logger.fine("parseExprList()")
+        val list = mutableListOf<SqlExpr>()
+        var expr = parseExpr()
+        while (expr != null) {
+            // logger.fine("parseExprList parsed $expr")
+            list.add(expr)
+            if (tokens.peek()?.type == Symbol.COMMA) {
+                tokens.next()
+            } else {
+                break
+            }
+            expr = parseExpr()
+        }
+        logger.fine("parseExprList() returning $list")
+        return list
+    }
+
+    private fun parseExpr() = parse(0)
+
+    /**
+     * Parse the next token as an identifier, throwing an exception if the next token is not an
+     * identifier.
+     */
+    private fun parseIdentifier(): SqlIdentifier {
+        val expr = parseExpr() ?: throw SQLException("Expected identifier, found EOF")
+        return when (expr) {
+            is SqlIdentifier -> expr
+            else -> throw SQLException("Expected identifier, found $expr")
+        }
     }
 }
 
@@ -1551,7 +2411,7 @@ fun main() {
 //        )
 //    )
 
-    val ctx = ExecutionContext()
+//    val ctx = ExecutionContext()
 //    val plan = ctx.csv("employee.csv")
 //        .filter(Eq(Column("state"), LiteralString("CO")))
 //        .project(
@@ -1609,19 +2469,30 @@ fun main() {
 //    println(formatPhysical(optimizedPhysicalPlan))
 //    printQueryResult(optimizedPhysicalPlan.execute())
 
-    val yellowCab = ctx.csv("yellow_tripdata_2024-01.csv")
+//    val yellowCab = ctx.csv("yellow_tripdata_2024-01.csv")
 //        .filter(col("state") eq lit("Uppsala"))
 //        .filter(col("Airport_fee") eq lit("0.0"))
-        .aggregate(
-            listOf1(col("passenger_count")), listOf1(Count())
-        )
+//        .aggregate(
+//            listOf1(col("passenger_count")), listOf1(Count())
+//        )
 
 //    (0..<3).forEach { doit(yellowCab) }
-    (0..<3).forEach { doitFast(yellowCab) }
+//    (0..<3).forEach { doitFast(yellowCab) }
 //    doitFast(yellowCab)
 //    println(formatPhysical(optimizedPhysicalPlan))
 //    printQueryResult(optimizedPhysicalPlan.execute())
 
+
+//    val sqlExpr = SqlBinaryExpr(SqlIdentifier("foo"), "=", SqlString("bar"))
+
+    val sql = "1 + 2 * 3";
+    println("parse() $sql")
+    val tokens = SqlTokenizer(sql).tokenize()
+    println(tokens)
+    val parsedQuery = SqlParser(tokens).parse()
+    println(parsedQuery)
+
+    
 }
 
 private fun doit(yellowCab: DataFrame) {
