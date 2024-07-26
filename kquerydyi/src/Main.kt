@@ -2663,7 +2663,7 @@ fun main() {
     val deferred = (1..2).map {month ->
         GlobalScope.async {
 
-            val sql = "SELECT store_and_fwd_flag, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY store_and_fwd_flag";
+            val sql = "SELECT VendorID, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY VendorID";
 
             val start = System.currentTimeMillis()
             val result = executeQuery(".", month, sql)
@@ -2678,9 +2678,9 @@ fun main() {
     val duration = System.currentTimeMillis() - start
     println("Collected ${results.size} batches in $duration ms")
 
-    val sql = "SELECT store_and_fwd_flag, MAX(max_amount) " +
+    val sql = "SELECT VendorID, MAX(max_amount) " +
             "FROM tripdata " +
-            "GROUP BY store_and_fwd_flag"
+            "GROUP BY VendorID"
 
     val ctx = ExecutionContext()
     ctx.registerDataSource("tripdata", InMemoryDataSource(results.first().schema, results))
