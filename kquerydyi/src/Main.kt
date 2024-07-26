@@ -1783,12 +1783,12 @@ class SqlTokenizer(val sql: String) {
 
         override fun toString(): String {
             return tokens.withIndex().map { (index, token) ->
-                    if (index == i) {
-                        "*$token"
-                    } else {
-                        token.toString()
-                    }
-                }.joinToString(" ")
+                if (index == i) {
+                    "*$token"
+                } else {
+                    token.toString()
+                }
+            }.joinToString(" ")
         }
     }
 
@@ -1923,8 +1923,7 @@ class SqlTokenizer(val sql: String) {
         val skipWhitespaceOffset = skipWhitespace(startOffset)
         return if (skipWhitespaceOffset != sql.length && Keyword.BY.name.equals(
                 sql.substring(
-                    skipWhitespaceOffset,
-                    skipWhitespaceOffset + 2
+                    skipWhitespaceOffset, skipWhitespaceOffset + 2
                 ), true
             )
         ) Keyword.textOf(text)!! else Literal.IDENTIFIER
@@ -2660,7 +2659,7 @@ fun main() {
 //    printQueryResult(result.asSequence())
 
     val start = System.currentTimeMillis()
-    val deferred = (1..12).map {month ->
+    val deferred = (1..12).map { month ->
 //    val deferred = (1..1).map {month ->
         GlobalScope.async {
 
@@ -2679,9 +2678,7 @@ fun main() {
     val duration = System.currentTimeMillis() - start
     println("Collected ${results.size} batches in $duration ms")
 
-    val sql = "SELECT VendorID, MAX(max_amount) " +
-            "FROM tripdata " +
-            "GROUP BY VendorID"
+    val sql = "SELECT VendorID, MAX(max_amount) FROM tripdata GROUP BY VendorID ORDER BY max_amount"
 
     val ctx = ExecutionContext()
     ctx.registerDataSource("tripdata", InMemoryDataSource(results.first().schema, results))
