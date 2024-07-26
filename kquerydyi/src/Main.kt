@@ -311,61 +311,6 @@ private class ReaderIterator(
                     val valueStr = row.value.getValue(field.value.name, "").trim()
                     vector.setSafe(row.index, valueStr.toByteArray())
                 }
-
-                is TinyIntVector -> rows.withIndex().forEach { row ->
-                    val valueStr = row.value.getValue(field.value.name, "").trim()
-                    if (valueStr.isEmpty()) {
-                        vector.setNull(row.index)
-                    } else {
-                        vector.set(row.index, valueStr.toByte())
-                    }
-                }
-
-                is SmallIntVector -> rows.withIndex().forEach { row ->
-                    val valueStr = row.value.getValue(field.value.name, "").trim()
-                    if (valueStr.isEmpty()) {
-                        vector.setNull(row.index)
-                    } else {
-                        vector.set(row.index, valueStr.toShort())
-                    }
-                }
-
-                is IntVector -> rows.withIndex().forEach { row ->
-                    val valueStr = row.value.getValue(field.value.name, "").trim()
-                    if (valueStr.isEmpty()) {
-                        vector.setNull(row.index)
-                    } else {
-                        vector.set(row.index, valueStr.toInt())
-                    }
-                }
-
-                is BigIntVector -> rows.withIndex().forEach { row ->
-                    val valueStr = row.value.getValue(field.value.name, "").trim()
-                    if (valueStr.isEmpty()) {
-                        vector.setNull(row.index)
-                    } else {
-                        vector.set(row.index, valueStr.toLong())
-                    }
-                }
-
-                is Float4Vector -> rows.withIndex().forEach { row ->
-                    val valueStr = row.value.getValue(field.value.name, "").trim()
-                    if (valueStr.isEmpty()) {
-                        vector.setNull(row.index)
-                    } else {
-                        vector.set(row.index, valueStr.toFloat())
-                    }
-                }
-
-                is Float8Vector -> rows.withIndex().forEach { row ->
-                    val valueStr = row.value.getValue(field.value.name, "")
-                    if (valueStr.isEmpty()) {
-                        vector.setNull(row.index)
-                    } else {
-                        vector.set(row.index, valueStr.toDouble())
-                    }
-                }
-
                 else -> throw IllegalStateException("No support for reading CSV columns with data type $vector")
             }
             field.value.valueCount = rows.size
@@ -469,7 +414,8 @@ private class CsvDataSource(
 
 private interface DataFrame {
     fun project(expr: List<LogicalExpr>): DataFrame
-//    fun filter(expr: LogicalExpr): DataFrame
+
+    //    fun filter(expr: LogicalExpr): DataFrame
     fun aggregate(groupBy: List<LogicalExpr>, aggregateExpr: List<AggregateExpr>): DataFrame
     fun schema(): Schema
     fun logicalPlan(): LogicalPlan
@@ -1111,91 +1057,6 @@ private class CastExpression(private val expr: Expression, private val dataType:
         val builder = ArrowVectorBuilder(fieldVector)
 
         when (dataType) {
-            ArrowTypes.Int8Type -> {
-                (0..<value.size()).forEach {
-                    val vv = value.getValue(it)
-                    if (vv == null) {
-                        builder.set(it, null)
-                    } else {
-                        val castValue = when (vv) {
-                            is ByteArray -> String(vv).toByte()
-                            is String -> vv.toByte()
-                            is Number -> vv.toByte()
-                            else -> throw IllegalStateException("Cannot cast value to Byte: $vv")
-                        }
-                        builder.set(it, castValue)
-                    }
-                }
-            }
-
-            ArrowTypes.Int16Type -> {
-                (0..<value.size()).forEach {
-                    val vv = value.getValue(it)
-                    if (vv == null) {
-                        builder.set(it, null)
-                    } else {
-                        val castValue = when (vv) {
-                            is ByteArray -> String(vv).toShort()
-                            is String -> vv.toShort()
-                            is Number -> vv.toShort()
-                            else -> throw IllegalStateException("Cannot cast value to Short: $vv")
-                        }
-                        builder.set(it, castValue)
-                    }
-                }
-            }
-
-            ArrowTypes.Int32Type -> {
-                (0..<value.size()).forEach {
-                    val vv = value.getValue(it)
-                    if (vv == null) {
-                        builder.set(it, null)
-                    } else {
-                        val castValue = when (vv) {
-                            is ByteArray -> String(vv).toInt()
-                            is String -> vv.toInt()
-                            is Number -> vv.toInt()
-                            else -> throw IllegalStateException("Cannot cast value to Int: $vv")
-                        }
-                        builder.set(it, castValue)
-                    }
-                }
-            }
-
-            ArrowTypes.Int64Type -> {
-                (0..<value.size()).forEach {
-                    val vv = value.getValue(it)
-                    if (vv == null) {
-                        builder.set(it, null)
-                    } else {
-                        val castValue = when (vv) {
-                            is ByteArray -> String(vv).toLong()
-                            is String -> vv.toLong()
-                            is Number -> vv.toLong()
-                            else -> throw IllegalStateException("Cannot cast value to Long: $vv")
-                        }
-                        builder.set(it, castValue)
-                    }
-                }
-            }
-
-            ArrowTypes.FloatType -> {
-                (0..<value.size()).forEach {
-                    val vv = value.getValue(it)
-                    if (vv == null) {
-                        builder.set(it, null)
-                    } else {
-                        val castValue = when (vv) {
-                            is ByteArray -> String(vv).toFloat()
-                            is String -> vv.toFloat()
-                            is Number -> vv.toFloat()
-                            else -> throw IllegalStateException("Cannot cast value to Float: $vv")
-                        }
-                        builder.set(it, castValue)
-                    }
-                }
-            }
-
             ArrowTypes.DoubleType -> {
                 (0..<value.size()).forEach {
                     val vv = value.getValue(it)
@@ -1212,18 +1073,6 @@ private class CastExpression(private val expr: Expression, private val dataType:
                     }
                 }
             }
-
-            ArrowTypes.StringType -> {
-                (0..<value.size()).forEach {
-                    val vv = value.getValue(it)
-                    if (vv == null) {
-                        builder.set(it, null)
-                    } else {
-                        builder.set(it, vv.toString())
-                    }
-                }
-            }
-
             else -> throw IllegalStateException("Cast to $dataType is not supported")
         }
 
@@ -1243,8 +1092,9 @@ private enum class Keyword : SqlTokenizer.TokenType {
     DOUBLE,
 //    AND, OR, XOR, IS, NOT, NULL, IN, BETWEEN, LIKE, ANY, ALL, EXISTS,
 
-//    AVG, MAX, MIN, SUM, COUNT, GREATEST, LEAST, ROUND, TRUNC, POSITION, EXTRACT, LENGTH, CHAR_LENGTH, SUBSTRING, SUBSTR, INSTR, INITCAP, UPPER, LOWER, TRIM, LTRIM, RTRIM, BOTH, LEADING, TRAILING, TRANSLATE, CONVERT, LPAD, RPAD, DECODE, NVL,
+    //    AVG, MAX, MIN, SUM, COUNT, GREATEST, LEAST, ROUND, TRUNC, POSITION, EXTRACT, LENGTH, CHAR_LENGTH, SUBSTRING, SUBSTR, INSTR, INITCAP, UPPER, LOWER, TRIM, LTRIM, RTRIM, BOTH, LEADING, TRAILING, TRANSLATE, CONVERT, LPAD, RPAD, DECODE, NVL,
     MAX,
+
     /**
      * Constraints
      */
@@ -1625,8 +1475,6 @@ private data class SqlSelect(
 
 private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattParser {
 
-    private val logger = Logger.getLogger(SqlParser::class.simpleName)
-
     override fun nextPrecedence(): Int {
         val token = tokens.peek() ?: return 0
         val precedence = when (token.type) {
@@ -1644,12 +1492,10 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
             Symbol.LEFT_PAREN -> 70
             else -> 0
         }
-        logger.fine("nextPrecedence($token) returning $precedence")
         return precedence
     }
 
     override fun parsePrefix(): SqlExpr? {
-        logger.fine("parsePrefix() next token = ${tokens.peek()}")
         val token = tokens.next() ?: return null
         val expr = when (token.type) {
             // Keywords
@@ -1669,40 +1515,20 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
 //            SqlTokenizer.Literal.DOUBLE -> SqlDouble(token.text.toDouble())
             else -> throw IllegalStateException("Unexpected token $token")
         }
-        logger.fine("parsePrefix() returning $expr")
         return expr
     }
 
     override fun parseInfix(left: SqlExpr, precedence: Int): SqlExpr {
-        logger.fine("parseInfix() next token = ${tokens.peek()}")
         val token = tokens.peek()!!
         val expr = when (token.type) {
-//            Symbol.PLUS, Symbol.SUB, Symbol.STAR, Symbol.SLASH, Symbol.EQ, Symbol.GT, Symbol.LT -> {
-//                tokens.next() // consume the token
-//                SqlBinaryExpr(
-//                    left, token.text, parse(precedence) ?: throw SQLException("Error parsing infix")
-//                )
-//            }
-
-            // keywords
             Keyword.AS -> {
                 tokens.next() // consume the token
                 SqlAlias(left, parseIdentifier())
             }
-
-//            Keyword.AND, Keyword.OR -> {
-//                tokens.next() // consume the token
-//                SqlBinaryExpr(
-//                    left, token.text, parse(precedence) ?: throw SQLException("Error parsing infix")
-//                )
-//            }
-
             Keyword.ASC, Keyword.DESC -> {
                 tokens.next()
                 SqlSort(left, token.type == Keyword.ASC)
             }
-
-
             Symbol.LEFT_PAREN -> {
                 if (left is SqlIdentifier) {
                     tokens.next() // consume the token
@@ -1713,10 +1539,8 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
                     throw IllegalStateException("Unexpected LPAREN")
                 }
             }
-
             else -> throw IllegalStateException("Unexpected infix token $token")
         }
-        logger.fine("parseInfix() returning $expr")
         return expr
     }
 
@@ -1786,7 +1610,6 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
     }
 
     private fun parseExprList(): List<SqlExpr> {
-        logger.fine("parseExprList()")
         val list = mutableListOf<SqlExpr>()
         var expr = parseExpr()
         while (expr != null) {
@@ -1799,7 +1622,6 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
             }
             expr = parseExpr()
         }
-        logger.fine("parseExprList() returning $list")
         return list
     }
 
