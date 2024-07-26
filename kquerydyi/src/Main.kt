@@ -2505,7 +2505,7 @@ private fun plan(sql: String): LogicalPlan {
 
 fun executeQuery(path: String, month: Int, sql: String): List<RecordBatch> {
     val monthStr = String.format("%02d", month);
-    val filename = "$path/yellow_tripdata_2024-$monthStr.csv"
+    val filename = "$path/yc-$monthStr.csv"
     val ctx = ExecutionContext()
     ctx.registerCsv("tripdata", filename)
     val df = ctx.sql(sql)
@@ -2660,7 +2660,8 @@ fun main() {
 //    printQueryResult(result.asSequence())
 
     val start = System.currentTimeMillis()
-    val deferred = (1..2).map {month ->
+    val deferred = (1..12).map {month ->
+//    val deferred = (1..1).map {month ->
         GlobalScope.async {
 
             val sql = "SELECT VendorID, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY VendorID";
