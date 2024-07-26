@@ -35,25 +35,6 @@ private interface ColumnVector {
     fun size(): Int
 }
 
-private class LiteralValueVector(
-    private val arrowType: ArrowType, val value: Any?, private val size: Int
-) : ColumnVector {
-    override fun getType(): ArrowType {
-        return arrowType
-    }
-
-    override fun getValue(i: Int): Any? {
-        if (i < 0 || i >= size) {
-            throw IndexOutOfBoundsException()
-        }
-        return value
-    }
-
-    override fun size(): Int {
-        return size
-    }
-}
-
 private data class Field(val name: String, val dataType: ArrowType) {
     fun toArrow(): org.apache.arrow.vector.types.pojo.Field {
         val fieldType = org.apache.arrow.vector.types.pojo.FieldType(true, dataType, null)
@@ -65,10 +46,6 @@ private data class Schema(val fields: List<Field>) {
 
     fun toArrow(): org.apache.arrow.vector.types.pojo.Schema {
         return org.apache.arrow.vector.types.pojo.Schema(fields.map { it.toArrow() })
-    }
-
-    fun project(indices: List<Int>): Schema {
-        return Schema(indices.map { fields[it] })
     }
 
     fun select(names: List<String>): Schema {
@@ -103,14 +80,6 @@ private interface LogicalPlan {
     fun children(): List<LogicalPlan>
 }
 
-private fun format(plan: LogicalPlan, indent: Int = 0): String {
-    val b = StringBuilder()
-    0.rangeTo(indent).forEach { _ -> b.append('\t') }
-    b.append(plan.toString()).append('\n')
-    plan.children().forEach { b.append(format(it, indent + 1)) }
-    return b.toString()
-}
-
 private interface LogicalExpr {
     fun toField(input: LogicalPlan): Field
 }
@@ -125,76 +94,6 @@ private class Column(val name: String) : LogicalExpr {
     }
 }
 
-private class LiteralString(val str: String) : LogicalExpr {
-    override fun toField(input: LogicalPlan): Field {
-        return Field(str, ArrowTypes.StringType)
-    }
-
-    override fun toString(): String {
-        return "'$str'"
-    }
-}
-
-private class LiteralLong(val n: Long) : LogicalExpr {
-    override fun toField(input: LogicalPlan): Field {
-        return Field(n.toString(), ArrowTypes.Int64Type)
-    }
-
-    override fun toString(): String {
-        return n.toString()
-    }
-}
-
-private class LiteralDouble(val n: Double) : LogicalExpr {
-    override fun toField(input: LogicalPlan): Field {
-        return Field(n.toString(), ArrowTypes.DoubleType)
-    }
-
-    override fun toString(): String {
-        return n.toString()
-    }
-}
-
-private abstract class BinaryExpr(
-    val name: String, private val op: String, val l: LogicalExpr, val r: LogicalExpr
-) : LogicalExpr {
-    override fun toString(): String {
-        return "$l $op $r"
-    }
-}
-
-private abstract class BooleanBinaryExpr(
-    name: String, op: String, l: LogicalExpr, r: LogicalExpr
-) : BinaryExpr(name, op, l, r) {
-    override fun toField(input: LogicalPlan): Field {
-        return Field(name, ArrowTypes.BooleanType)
-    }
-}
-
-private class Eq(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("eq", "=", l, r)
-private class Neq(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("neq", "!=", l, r)
-private class Gt(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("gt", ">", l, r)
-private class GtEq(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("gteq", ">=", l, r)
-private class Lt(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("lt", "<", l, r)
-private class LtEq(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("lteq", "<=", l, r)
-
-private class And(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("and", "AND", l, r)
-private class Or(l: LogicalExpr, r: LogicalExpr) : BooleanBinaryExpr("or", "OR", l, r)
-
-private abstract class MathExpr(
-    name: String, op: String, l: LogicalExpr, r: LogicalExpr
-) : BooleanBinaryExpr(name, op, l, r) {
-    override fun toField(input: LogicalPlan): Field {
-        return Field("mult", l.toField(input).dataType)
-    }
-}
-
-private class Add(l: LogicalExpr, r: LogicalExpr) : MathExpr("add", "+", l, r)
-private class Subtract(l: LogicalExpr, r: LogicalExpr) : MathExpr("subtract", "-", l, r)
-private class Multiply(l: LogicalExpr, r: LogicalExpr) : MathExpr("mult", "*", l, r)
-private class Divide(l: LogicalExpr, r: LogicalExpr) : MathExpr("div", "/", l, r)
-private class Modulus(l: LogicalExpr, r: LogicalExpr) : MathExpr("mod", "%", l, r)
-
 private abstract class AggregateExpr(
     val name: String, val expr: LogicalExpr
 ) : LogicalExpr {
@@ -207,20 +106,9 @@ private abstract class AggregateExpr(
     }
 }
 
-private class Sum(input: LogicalExpr) : AggregateExpr("SUM", input)
-private class Min(input: LogicalExpr) : AggregateExpr("MIN", input)
+//private class Sum(input: LogicalExpr) : AggregateExpr("SUM", input)
+//private class Min(input: LogicalExpr) : AggregateExpr("MIN", input)
 private class Max(input: LogicalExpr) : AggregateExpr("MAX", input)
-private class Avg(input: LogicalExpr) : AggregateExpr("AVG", input)
-
-private class Count(input: LogicalExpr = LiteralLong(1)) : AggregateExpr("COUNT", input) {
-    override fun toField(input: LogicalPlan): Field {
-        return Field("COUNT", ArrowTypes.Int32Type)
-    }
-
-    override fun toString(): String {
-        return "COUNT($expr)"
-    }
-}
 
 private class Scan(
     val path: String, val dataSource: DataSource, val projection: List<String>
@@ -273,21 +161,21 @@ private class Projection(
     }
 }
 
-private class Selection(
-    val input: LogicalPlan, val expr: LogicalExpr
-) : LogicalPlan {
-    override fun schema(): Schema {
-        return input.schema()
-    }
-
-    override fun children(): List<LogicalPlan> {
-        return listOf1(input)
-    }
-
-    override fun toString(): String {
-        return "Filter: $expr"
-    }
-}
+//private class Selection(
+//    val input: LogicalPlan, val expr: LogicalExpr
+//) : LogicalPlan {
+//    override fun schema(): Schema {
+//        return input.schema()
+//    }
+//
+//    override fun children(): List<LogicalPlan> {
+//        return listOf1(input)
+//    }
+//
+//    override fun toString(): String {
+//        return "Filter: $expr"
+//    }
+//}
 
 private class Aggregate(
     val input: LogicalPlan, val groupExpr: List<LogicalExpr>, val aggExpr: List<AggregateExpr>
@@ -581,7 +469,7 @@ private class CsvDataSource(
 
 private interface DataFrame {
     fun project(expr: List<LogicalExpr>): DataFrame
-    fun filter(expr: LogicalExpr): DataFrame
+//    fun filter(expr: LogicalExpr): DataFrame
     fun aggregate(groupBy: List<LogicalExpr>, aggregateExpr: List<AggregateExpr>): DataFrame
     fun schema(): Schema
     fun logicalPlan(): LogicalPlan
@@ -592,9 +480,9 @@ private class DataFrameImpl(private val plan: LogicalPlan) : DataFrame {
         return DataFrameImpl(Projection(plan, expr))
     }
 
-    override fun filter(expr: LogicalExpr): DataFrame {
-        return DataFrameImpl(Selection(plan, expr))
-    }
+//    override fun filter(expr: LogicalExpr): DataFrame {
+//        return DataFrameImpl(Selection(plan, expr))
+//    }
 
     override fun aggregate(groupBy: List<LogicalExpr>, aggregateExpr: List<AggregateExpr>): DataFrame {
         return DataFrameImpl(Aggregate(plan, groupBy, aggregateExpr))
@@ -659,8 +547,6 @@ private class CastExpr(val expr: LogicalExpr, val dataType: ArrowType) : Logical
     }
 }
 
-private fun col(name: String) = Column(name)
-
 private class Alias(val expr: LogicalExpr, val alias: String) : LogicalExpr {
     override fun toField(input: LogicalPlan): Field {
         return Field(alias, expr.toField(input).dataType)
@@ -689,99 +575,6 @@ private class ColumnExpression(val i: Int) : Expression {
 
     override fun toString(): String {
         return "#$i"
-    }
-}
-
-private class LiteralLongExpression(val value: Long) : Expression {
-    override fun evaluate(input: RecordBatch): ColumnVector {
-        return LiteralValueVector(
-            ArrowTypes.Int64Type, value, input.rowCount()
-        )
-    }
-}
-
-private class LiteralDoubleExpression(val value: Double) : Expression {
-    override fun evaluate(input: RecordBatch): ColumnVector {
-        return LiteralValueVector(
-            ArrowTypes.DoubleType, value, input.rowCount()
-        )
-    }
-}
-
-private class LiteralStringExpression(val value: String) : Expression {
-    override fun evaluate(input: RecordBatch): ColumnVector {
-        return LiteralValueVector(
-            ArrowTypes.StringType, value, input.rowCount()
-        )
-    }
-
-    override fun toString(): String {
-        return value
-    }
-}
-
-private abstract class BinaryExpression(val l: Expression, val r: Expression) : Expression {
-    override fun evaluate(input: RecordBatch): ColumnVector {
-        val ll = l.evaluate(input)
-        val rr = r.evaluate(input)
-        assert(ll.size() == rr.size())
-        if (ll.getType() != rr.getType()) {
-            throw IllegalStateException(
-                "Binary expression operands do not have the same type: " + "${ll.getType()} != ${rr.getType()}"
-            )
-        }
-        return evaluate(ll, rr)
-    }
-
-    abstract fun evaluate(l: ColumnVector, r: ColumnVector): ColumnVector
-}
-
-private abstract class BooleanExpression(val l: Expression, val r: Expression) : Expression {
-
-    override fun evaluate(input: RecordBatch): ColumnVector {
-        val ll = l.evaluate(input)
-        val rr = r.evaluate(input)
-        assert(ll.size() == rr.size())
-        if (ll.getType() != rr.getType()) {
-            throw IllegalStateException(
-                "Cannot compare values of different type: ${ll.getType()} != ${rr.getType()}"
-            )
-        }
-        return compare(ll, rr)
-    }
-
-    private fun compare(l: ColumnVector, r: ColumnVector): ColumnVector {
-        val v = BitVector("v", RootAllocator(Long.MAX_VALUE))
-        v.allocateNew()
-        (0..<l.size()).forEach {
-            val value = evaluate(l.getValue(it), r.getValue(it), l.getType())
-            v.set(it, if (value) 1 else 0)
-        }
-        v.valueCount = l.size()
-        return ArrowFieldVector(v)
-    }
-
-    abstract fun evaluate(l: Any?, r: Any?, arrowType: ArrowType): Boolean
-}
-
-private class EqExpression(l: Expression, r: Expression) : BooleanExpression(l, r) {
-    override fun evaluate(l: Any?, r: Any?, arrowType: ArrowType): Boolean {
-        return when (arrowType) {
-            ArrowTypes.Int8Type -> (l as Byte) == (r as Byte)
-            ArrowTypes.Int16Type -> (l as Short) == (r as Short)
-            ArrowTypes.Int32Type -> (l as Int) == (r as Int)
-            ArrowTypes.Int64Type -> (l as Long) == (r as Long)
-            ArrowTypes.FloatType -> (l as Float) == (r as Float)
-            ArrowTypes.DoubleType -> (l as Double) == (r as Double)
-            ArrowTypes.StringType -> l.toString() == r.toString()
-            else -> throw IllegalStateException(
-                "Unsupported data type in comparison expression: $arrowType"
-            )
-        }
-    }
-
-    override fun toString(): String {
-        return "$l = $r"
     }
 }
 
@@ -907,39 +700,6 @@ private class ArrowVectorBuilder(private val fieldVector: FieldVector) {
     }
 }
 
-private abstract class MathExpression(l: Expression, r: Expression) : BinaryExpression(l, r) {
-    override fun evaluate(l: ColumnVector, r: ColumnVector): ColumnVector {
-        val fieldVector = FieldVectorFactory.create(l.getType(), l.size())
-        val builder = ArrowVectorBuilder(fieldVector)
-        (0..<l.size()).forEach {
-            val value = evaluate(l.getValue(it), r.getValue(it), l.getType())
-            builder.set(it, value)
-        }
-        builder.setValueCount(l.size())
-        return builder.build()
-    }
-
-    abstract fun evaluate(l: Any?, r: Any?, arrowType: ArrowType): Any?
-}
-
-private class AddExpression(l: Expression, r: Expression) : MathExpression(l, r) {
-    override fun evaluate(l: Any?, r: Any?, arrowType: ArrowType): Any {
-        return when (arrowType) {
-            ArrowTypes.Int8Type -> (l as Byte) + (r as Byte)
-            ArrowTypes.Int16Type -> (l as Short) + (r as Short)
-            ArrowTypes.Int32Type -> (l as Int) + (r as Int)
-            ArrowTypes.Int64Type -> (l as Long) + (r as Long)
-            ArrowTypes.FloatType -> (l as Float) + (r as Float)
-            ArrowTypes.DoubleType -> (l as Double) + (r as Double)
-            else -> throw IllegalStateException("Unsupported data type in math expression: $arrowType")
-        }
-    }
-
-    override fun toString(): String {
-        return "$l + $r"
-    }
-}
-
 private interface AggregateExpression {
     fun inputExpression(): Expression
     fun createAccumulator(): Accumulator
@@ -990,79 +750,49 @@ private class MaxAccumulator : Accumulator {
     }
 }
 
-private class SumExpression(private val expr: Expression) : AggregateExpression {
+//private class SumExpression(private val expr: Expression) : AggregateExpression {
+//
+//    override fun inputExpression(): Expression {
+//        return expr
+//    }
+//
+//    override fun createAccumulator(): Accumulator {
+//        return SumAccumulator()
+//    }
+//
+//    override fun toString(): String {
+//        return "SUM($expr)"
+//    }
+//}
 
-    override fun inputExpression(): Expression {
-        return expr
-    }
-
-    override fun createAccumulator(): Accumulator {
-        return SumAccumulator()
-    }
-
-    override fun toString(): String {
-        return "SUM($expr)"
-    }
-}
-
-private class SumAccumulator : Accumulator {
-
-    var value: Any? = null
-
-    override fun accumulate(value: Any?) {
-        if (value != null) {
-            if (this.value == null) {
-                this.value = value
-            } else {
-                when (val currentValue = this.value) {
-                    is Byte -> this.value = currentValue + value as Byte
-                    is Short -> this.value = currentValue + value as Short
-                    is Int -> this.value = currentValue + value as Int
-                    is Long -> this.value = currentValue + value as Long
-                    is Float -> this.value = currentValue + value as Float
-                    is Double -> this.value = currentValue + value as Double
-                    else -> throw UnsupportedOperationException(
-                        "MIN is not implemented for type: ${value.javaClass.name}"
-                    )
-                }
-            }
-        }
-    }
-
-    override fun finalValue(): Any? {
-        return value
-    }
-}
-
-private class CountExpression(private val expr: Expression) : AggregateExpression {
-
-    override fun inputExpression(): Expression {
-        return expr
-    }
-
-    override fun createAccumulator(): Accumulator {
-        return CountAccumulator()
-    }
-
-    override fun toString(): String {
-        return "COUNT($expr)"
-    }
-}
-
-private class CountAccumulator : Accumulator {
-
-    var value: Int = 0
-
-    override fun accumulate(value: Any?) {
-        if (value != null) {
-            this.value++
-        }
-    }
-
-    override fun finalValue(): Int {
-        return value
-    }
-}
+//private class SumAccumulator : Accumulator {
+//
+//    var value: Any? = null
+//
+//    override fun accumulate(value: Any?) {
+//        if (value != null) {
+//            if (this.value == null) {
+//                this.value = value
+//            } else {
+//                when (val currentValue = this.value) {
+//                    is Byte -> this.value = currentValue + value as Byte
+//                    is Short -> this.value = currentValue + value as Short
+//                    is Int -> this.value = currentValue + value as Int
+//                    is Long -> this.value = currentValue + value as Long
+//                    is Float -> this.value = currentValue + value as Float
+//                    is Double -> this.value = currentValue + value as Double
+//                    else -> throw UnsupportedOperationException(
+//                        "MIN is not implemented for type: ${value.javaClass.name}"
+//                    )
+//                }
+//            }
+//        }
+//    }
+//
+//    override fun finalValue(): Any? {
+//        return value
+//    }
+//}
 
 private class ScanExec(private val ds: DataSource, private val projection: List<String>) : PhysicalPlan {
     override fun schema(): Schema {
@@ -1106,50 +836,50 @@ private class ProjectionExec(
     }
 }
 
-private class SelectionExec(
-    private val input: PhysicalPlan, private val expr: Expression
-) : PhysicalPlan {
-    override fun schema(): Schema {
-        return input.schema()
-    }
-
-    override fun execute(): Sequence<RecordBatch> {
-        val input = input.execute()
-        return input.map { batch ->
-            val result = (expr.evaluate(batch) as ArrowFieldVector).field as BitVector
-            val schema = batch.schema
-            val columnCount = batch.schema.fields.size
-            val filteredFields = (0..<columnCount).map {
-                filter(batch.field(it), result)
-            }
-            val fields = filteredFields.map { ArrowFieldVector(it) }
-            RecordBatch(schema, fields)
-        }
-    }
-
-    override fun children(): List<PhysicalPlan> {
-        return listOf1(input)
-    }
-
-    private fun filter(v: ColumnVector, selection: BitVector): FieldVector {
-        val filteredVector = VarCharVector("v", RootAllocator(Long.MAX_VALUE))
-        filteredVector.allocateNew()
-        val builder = ArrowVectorBuilder(filteredVector)
-        var count = 0
-        (0..<selection.valueCount).forEach {
-            if (selection.get(it) == 1) {
-                builder.set(count, v.getValue(it))
-                count++
-            }
-        }
-        filteredVector.valueCount = count
-        return filteredVector
-    }
-
-    override fun toString(): String {
-        return "SelectionExec: $expr"
-    }
-}
+//private class SelectionExec(
+//    private val input: PhysicalPlan, private val expr: Expression
+//) : PhysicalPlan {
+//    override fun schema(): Schema {
+//        return input.schema()
+//    }
+//
+//    override fun execute(): Sequence<RecordBatch> {
+//        val input = input.execute()
+//        return input.map { batch ->
+//            val result = (expr.evaluate(batch) as ArrowFieldVector).field as BitVector
+//            val schema = batch.schema
+//            val columnCount = batch.schema.fields.size
+//            val filteredFields = (0..<columnCount).map {
+//                filter(batch.field(it), result)
+//            }
+//            val fields = filteredFields.map { ArrowFieldVector(it) }
+//            RecordBatch(schema, fields)
+//        }
+//    }
+//
+//    override fun children(): List<PhysicalPlan> {
+//        return listOf1(input)
+//    }
+//
+//    private fun filter(v: ColumnVector, selection: BitVector): FieldVector {
+//        val filteredVector = VarCharVector("v", RootAllocator(Long.MAX_VALUE))
+//        filteredVector.allocateNew()
+//        val builder = ArrowVectorBuilder(filteredVector)
+//        var count = 0
+//        (0..<selection.valueCount).forEach {
+//            if (selection.get(it) == 1) {
+//                builder.set(count, v.getValue(it))
+//                count++
+//            }
+//        }
+//        filteredVector.valueCount = count
+//        return filteredVector
+//    }
+//
+//    override fun toString(): String {
+//        return "SelectionExec: $expr"
+//    }
+//}
 
 //interface PhysicalAggregateExpression {
 //    fun inputExpression(): Expression
@@ -1232,25 +962,25 @@ private fun createPhysicalExpr(expr: LogicalExpr, input: LogicalPlan): Expressio
         createPhysicalExpr(expr.expr, input)
     }
 
-    is LiteralLong -> LiteralLongExpression(expr.n)
-    is LiteralDouble -> LiteralDoubleExpression(expr.n)
-    is LiteralString -> LiteralStringExpression(expr.str)
+//    is LiteralLong -> LiteralLongExpression(expr.n)
+//    is LiteralDouble -> LiteralDoubleExpression(expr.n)
+//    is LiteralString -> LiteralStringExpression(expr.str)
     is CastExpr -> CastExpression(createPhysicalExpr(expr.expr, input), expr.dataType)
-    is BinaryExpr -> {
-        val l = createPhysicalExpr(expr.l, input)
-        val r = createPhysicalExpr(expr.r, input)
-        when (expr) {
-            // comparison
-            is Eq -> EqExpression(l, r)
-
-            // boolean
-
-            // math
-            is Add -> AddExpression(l, r)
-
-            else -> throw IllegalStateException("Unsupported binary expression: $expr")
-        }
-    }
+//    is BinaryExpr -> {
+//        val l = createPhysicalExpr(expr.l, input)
+//        val r = createPhysicalExpr(expr.r, input)
+//        when (expr) {
+//            // comparison
+//            is Eq -> EqExpression(l, r)
+//
+//            // boolean
+//
+//            // math
+//            is Add -> AddExpression(l, r)
+//
+//            else -> throw IllegalStateException("Unsupported binary expression: $expr")
+//        }
+//    }
 
     else -> throw IllegalStateException("Unknown expr: $expr")
 }
@@ -1265,11 +995,11 @@ private fun createPhysicalPlan(plan: LogicalPlan): PhysicalPlan {
             ProjectionExec(input, projectionSchema, projectionExpr)
         }
 
-        is Selection -> {
-            val input = createPhysicalPlan(plan.input)
-            val filterExpr = createPhysicalExpr(plan.expr, plan.input)
-            SelectionExec(input, filterExpr)
-        }
+//        is Selection -> {
+//            val input = createPhysicalPlan(plan.input)
+//            val filterExpr = createPhysicalExpr(plan.expr, plan.input)
+//            SelectionExec(input, filterExpr)
+//        }
 
         is Aggregate -> {
             val input = createPhysicalPlan(plan.input)
@@ -1277,8 +1007,8 @@ private fun createPhysicalPlan(plan: LogicalPlan): PhysicalPlan {
             val aggregateExpr = plan.aggExpr.map {
                 when (it) {
                     is Max -> MaxExpression(createPhysicalExpr(it.expr, plan.input))
-                    is Sum -> SumExpression(createPhysicalExpr(it.expr, plan.input))
-                    is Count -> CountExpression(createPhysicalExpr(it.expr, plan.input))
+//                    is Sum -> SumExpression(createPhysicalExpr(it.expr, plan.input))
+//                    is Count -> CountExpression(createPhysicalExpr(it.expr, plan.input))
                     else -> throw IllegalStateException(
                         "Unsupported aggregate function: $it"
                     )
@@ -1318,10 +1048,10 @@ private fun extractColumns(expr: LogicalExpr, input: LogicalPlan, accum: Mutable
 
         is CastExpr -> extractColumns(expr.expr, input, accum)
 
-        is LiteralString -> {}
-        is LiteralDouble -> {}
-        is LiteralLong -> {}
-        is Eq -> {}
+//        is LiteralString -> {}
+//        is LiteralDouble -> {}
+//        is LiteralLong -> {}
+//        is Eq -> {}
         is AggregateExpr -> {
             accum.add("fare_amount")
         }
@@ -1345,11 +1075,11 @@ private class ProjectionPushDownRule : OptimizerRule {
                 Projection(input, plan.expr)
             }
 
-            is Selection -> {
-                extractColumns(plan.expr, plan, columnNames)
-                val input = pushDown(plan.input, columnNames)
-                Selection(input, plan.expr)
-            }
+//            is Selection -> {
+//                extractColumns(plan.expr, plan, columnNames)
+//                val input = pushDown(plan.input, columnNames)
+//                Selection(input, plan.expr)
+//            }
 
             is Aggregate -> {
                 extractColumns(plan.groupExpr, plan.input, columnNames)
@@ -1507,68 +1237,14 @@ private enum class Keyword : SqlTokenizer.TokenType {
     /**
      * common
      */
-    SCHEMA, DATABASE, TABLE, COLUMN, VIEW, INDEX, TRIGGER, PROCEDURE, TABLESPACE, FUNCTION, SEQUENCE, CURSOR, FROM, TO, OF, IF, ON, FOR, WHILE, DO, NO, BY, WITH, WITHOUT, TRUE, FALSE, TEMPORARY, TEMP, COMMENT,
+    FROM,
+    SELECT, AS, WHERE, ORDER, GROUP, BY, ASC, DESC,
+    CAST,
+    DOUBLE,
+//    AND, OR, XOR, IS, NOT, NULL, IN, BETWEEN, LIKE, ANY, ALL, EXISTS,
 
-    /**
-     * create
-     */
-    CREATE, REPLACE, BEFORE, AFTER, INSTEAD, EACH, ROW, STATEMENT, EXECUTE, BITMAP, NOSORT, REVERSE, COMPILE,
-
-    /**
-     * alter
-     */
-    ALTER, ADD, MODIFY, RENAME, ENABLE, DISABLE, VALIDATE, USER, IDENTIFIED,
-
-    /**
-     * truncate
-     */
-    TRUNCATE,
-
-    /**
-     * drop
-     */
-    DROP, CASCADE,
-
-    /**
-     * insert
-     */
-    INSERT, INTO, VALUES,
-
-    /**
-     * update
-     */
-    UPDATE, SET,
-
-    /**
-     * delete
-     */
-    DELETE,
-
-    /**
-     * select
-     */
-    SELECT, DISTINCT, AS, CASE, WHEN, ELSE, THEN, END, LEFT, RIGHT, FULL, INNER, OUTER, CROSS, JOIN, USE, USING, NATURAL, WHERE, ORDER, ASC, DESC, GROUP, HAVING, UNION,
-
-    /**
-     * others
-     */
-    DECLARE, GRANT, FETCH, REVOKE, CLOSE, CAST, NEW, ESCAPE, LOCK, SOME, LEAVE, ITERATE, REPEAT, UNTIL, OPEN, OUT, INOUT, OVER, ADVISE, SIBLINGS, LOOP, EXPLAIN, DEFAULT, EXCEPT, INTERSECT, MINUS, PASSWORD, LOCAL, GLOBAL, STORAGE, DATA, COALESCE,
-
-    /**
-     * Types
-     */
-    CHAR, CHARACTER, VARYING, VARCHAR, VARCHAR2, INTEGER, INT, SMALLINT, DECIMAL, DEC, NUMERIC, FLOAT, REAL, DOUBLE, PRECISION, DATE, TIME, INTERVAL, BOOLEAN, BLOB,
-
-    /**
-     * Conditionals
-     */
-    AND, OR, XOR, IS, NOT, NULL, IN, BETWEEN, LIKE, ANY, ALL, EXISTS,
-
-    /**
-     * Functions
-     */
-    AVG, MAX, MIN, SUM, COUNT, GREATEST, LEAST, ROUND, TRUNC, POSITION, EXTRACT, LENGTH, CHAR_LENGTH, SUBSTRING, SUBSTR, INSTR, INITCAP, UPPER, LOWER, TRIM, LTRIM, RTRIM, BOTH, LEADING, TRAILING, TRANSLATE, CONVERT, LPAD, RPAD, DECODE, NVL,
-
+//    AVG, MAX, MIN, SUM, COUNT, GREATEST, LEAST, ROUND, TRUNC, POSITION, EXTRACT, LENGTH, CHAR_LENGTH, SUBSTRING, SUBSTR, INSTR, INITCAP, UPPER, LOWER, TRIM, LTRIM, RTRIM, BOTH, LEADING, TRAILING, TRANSLATE, CONVERT, LPAD, RPAD, DECODE, NVL,
+    MAX,
     /**
      * Constraints
      */
@@ -1904,25 +1580,25 @@ private data class SqlIdentifier(val id: String) : SqlExpr {
     override fun toString() = id
 }
 
-/** Binary expression */
-private data class SqlBinaryExpr(val l: SqlExpr, val op: String, val r: SqlExpr) : SqlExpr {
-    override fun toString(): String = "$l $op $r"
-}
+///** Binary expression */
+//private data class SqlBinaryExpr(val l: SqlExpr, val op: String, val r: SqlExpr) : SqlExpr {
+//    override fun toString(): String = "$l $op $r"
+//}
 
-/** SQL literal string */
-private data class SqlString(val value: String) : SqlExpr {
-    override fun toString() = "'$value'"
-}
+///** SQL literal string */
+//private data class SqlString(val value: String) : SqlExpr {
+//    override fun toString() = "'$value'"
+//}
 
-/** SQL literal long */
-private data class SqlLong(val value: Long) : SqlExpr {
-    override fun toString() = "$value"
-}
+///** SQL literal long */
+//private data class SqlLong(val value: Long) : SqlExpr {
+//    override fun toString() = "$value"
+//}
 
-/** SQL literal double */
-private data class SqlDouble(val value: Double) : SqlExpr {
-    override fun toString() = "$value"
-}
+///** SQL literal double */
+//private data class SqlDouble(val value: Double) : SqlExpr {
+//    override fun toString() = "$value"
+//}
 
 /** SQL function call */
 private data class SqlFunction(val id: String, val args: List<SqlExpr>) : SqlExpr {
@@ -1956,8 +1632,8 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
         val precedence = when (token.type) {
             // Keywords
             Keyword.AS, Keyword.ASC, Keyword.DESC -> 10
-            Keyword.OR -> 20
-            Keyword.AND -> 30
+//            Keyword.OR -> 20
+//            Keyword.AND -> 30
 
             // Symbols
             Symbol.LT, Symbol.LT_EQ, Symbol.EQ, Symbol.BANG_EQ, Symbol.GT_EQ, Symbol.GT -> 40
@@ -1983,14 +1659,14 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
             Keyword.MAX -> SqlIdentifier(token.text)
 
             // type
-            Keyword.INT -> SqlIdentifier(token.text)
+//            Keyword.INT -> SqlIdentifier(token.text)
             Keyword.DOUBLE -> SqlIdentifier(token.text)
 
             // Literals
             SqlTokenizer.Literal.IDENTIFIER -> SqlIdentifier(token.text)
-            SqlTokenizer.Literal.STRING -> SqlString(token.text)
-            SqlTokenizer.Literal.LONG -> SqlLong(token.text.toLong())
-            SqlTokenizer.Literal.DOUBLE -> SqlDouble(token.text.toDouble())
+//            SqlTokenizer.Literal.STRING -> SqlString(token.text)
+//            SqlTokenizer.Literal.LONG -> SqlLong(token.text.toLong())
+//            SqlTokenizer.Literal.DOUBLE -> SqlDouble(token.text.toDouble())
             else -> throw IllegalStateException("Unexpected token $token")
         }
         logger.fine("parsePrefix() returning $expr")
@@ -2001,12 +1677,12 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
         logger.fine("parseInfix() next token = ${tokens.peek()}")
         val token = tokens.peek()!!
         val expr = when (token.type) {
-            Symbol.PLUS, Symbol.SUB, Symbol.STAR, Symbol.SLASH, Symbol.EQ, Symbol.GT, Symbol.LT -> {
-                tokens.next() // consume the token
-                SqlBinaryExpr(
-                    left, token.text, parse(precedence) ?: throw SQLException("Error parsing infix")
-                )
-            }
+//            Symbol.PLUS, Symbol.SUB, Symbol.STAR, Symbol.SLASH, Symbol.EQ, Symbol.GT, Symbol.LT -> {
+//                tokens.next() // consume the token
+//                SqlBinaryExpr(
+//                    left, token.text, parse(precedence) ?: throw SQLException("Error parsing infix")
+//                )
+//            }
 
             // keywords
             Keyword.AS -> {
@@ -2014,12 +1690,12 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
                 SqlAlias(left, parseIdentifier())
             }
 
-            Keyword.AND, Keyword.OR -> {
-                tokens.next() // consume the token
-                SqlBinaryExpr(
-                    left, token.text, parse(precedence) ?: throw SQLException("Error parsing infix")
-                )
-            }
+//            Keyword.AND, Keyword.OR -> {
+//                tokens.next() // consume the token
+//                SqlBinaryExpr(
+//                    left, token.text, parse(precedence) ?: throw SQLException("Error parsing infix")
+//                )
+//            }
 
             Keyword.ASC, Keyword.DESC -> {
                 tokens.next()
@@ -2204,9 +1880,9 @@ private fun createDataFrame(select: SqlSelect, tables: Map<String, DataFrame>): 
         }
         plan = planAggregateQuery(projectionExpr, select, columnNamesInSelection, plan, aggrExpr)
         plan = plan.project(projection)
-        if (select.having != null) {
-            plan = plan.filter(createLogicalExpr(select.having, plan))
-        }
+//        if (select.having != null) {
+//            plan = plan.filter(createLogicalExpr(select.having, plan))
+//        }
         return plan
     }
 }
@@ -2236,7 +1912,7 @@ private fun planNonAggregateQuery(
     val missing = (columnNamesInSelection - columnNamesInProjection)
     val n = projectionExpr.size
     plan = plan.project(projectionExpr + missing.map { Column(it) })
-    plan = plan.filter(createLogicalExpr(select.selection, plan))
+//    plan = plan.filter(createLogicalExpr(select.selection, plan))
 
     // drop the columns that were added for the selection
     val expr = (0..<n).map { i -> Column(plan.schema().fields[i].name) }
@@ -2264,7 +1940,7 @@ private fun planAggregateQuery(
         // need to create an interim projection that has the additional columns, and then we need
         // to remove them after the selection has been applied
         plan = plan.project(projectionWithoutAggregates + missing.map { Column(it) })
-        plan = plan.filter(createLogicalExpr(select.selection, plan))
+//        plan = plan.filter(createLogicalExpr(select.selection, plan))
     }
 
     val groupByExpr = select.groupBy.map { createLogicalExpr(it, plan) }
@@ -2293,10 +1969,10 @@ private fun visit(expr: LogicalExpr, accumulator: MutableSet<String>) {
     when (expr) {
         is Column -> accumulator.add(expr.name)
         is Alias -> visit(expr.expr, accumulator)
-        is BinaryExpr -> {
-            visit(expr.l, accumulator)
-            visit(expr.r, accumulator)
-        }
+//        is BinaryExpr -> {
+//            visit(expr.l, accumulator)
+//            visit(expr.r, accumulator)
+//        }
 
         is AggregateExpr -> visit(expr.expr, accumulator)
     }
@@ -2306,42 +1982,42 @@ private fun visit(expr: LogicalExpr, accumulator: MutableSet<String>) {
 private fun createLogicalExpr(expr: SqlExpr, input: DataFrame): LogicalExpr {
     return when (expr) {
         is SqlIdentifier -> Column(expr.id)
-        is SqlString -> LiteralString(expr.value)
-        is SqlLong -> LiteralLong(expr.value)
-        is SqlDouble -> LiteralDouble(expr.value)
-        is SqlBinaryExpr -> {
-            val l = createLogicalExpr(expr.l, input)
-            val r = createLogicalExpr(expr.r, input)
-            when (expr.op) {
-                // comparison operators
-                "=" -> Eq(l, r)
-                "!=" -> Neq(l, r)
-                ">" -> Gt(l, r)
-                ">=" -> GtEq(l, r)
-                "<" -> Lt(l, r)
-                "<=" -> LtEq(l, r)
-                // boolean operators
-                "AND" -> And(l, r)
-                "OR" -> Or(l, r)
-                // math operators
-                "+" -> Add(l, r)
-                "-" -> Subtract(l, r)
-                "*" -> Multiply(l, r)
-                "/" -> Divide(l, r)
-                "%" -> Modulus(l, r)
-                else -> throw SQLException("Invalid operator ${expr.op}")
-            }
-        }
+//        is SqlString -> LiteralString(expr.value)
+//        is SqlLong -> LiteralLong(expr.value)
+//        is SqlDouble -> LiteralDouble(expr.value)
+//        is SqlBinaryExpr -> {
+//            val l = createLogicalExpr(expr.l, input)
+//            val r = createLogicalExpr(expr.r, input)
+//            when (expr.op) {
+//                // comparison operators
+//                "=" -> Eq(l, r)
+//                "!=" -> Neq(l, r)
+//                ">" -> Gt(l, r)
+//                ">=" -> GtEq(l, r)
+//                "<" -> Lt(l, r)
+//                "<=" -> LtEq(l, r)
+//                // boolean operators
+//                "AND" -> And(l, r)
+//                "OR" -> Or(l, r)
+//                // math operators
+//                "+" -> Add(l, r)
+//                "-" -> Subtract(l, r)
+//                "*" -> Multiply(l, r)
+//                "/" -> Divide(l, r)
+//                "%" -> Modulus(l, r)
+//                else -> throw SQLException("Invalid operator ${expr.op}")
+//            }
+//        }
         // is SqlUnaryExpr -> when (expr.op) {
         // "NOT" -> Not(createLogicalExpr(expr.l, input))
         // }
         is SqlAlias -> Alias(createLogicalExpr(expr.expr, input), expr.alias.id)
         is SqlCast -> CastExpr(createLogicalExpr(expr.expr, input), parseDataType(expr.dataType.id))
         is SqlFunction -> when (expr.id) {
-            "MIN" -> Min(createLogicalExpr(expr.args.first(), input))
+//            "MIN" -> Min(createLogicalExpr(expr.args.first(), input))
             "MAX" -> Max(createLogicalExpr(expr.args.first(), input))
-            "SUM" -> Sum(createLogicalExpr(expr.args.first(), input))
-            "AVG" -> Avg(createLogicalExpr(expr.args.first(), input))
+//            "SUM" -> Sum(createLogicalExpr(expr.args.first(), input))
+//            "AVG" -> Avg(createLogicalExpr(expr.args.first(), input))
             else -> throw SQLException("Invalid aggregate function: $expr")
         }
 
@@ -2354,19 +2030,6 @@ private fun parseDataType(id: String): ArrowType {
         "double" -> ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
         else -> throw SQLException("Invalid data type $id")
     }
-}
-
-private fun executeQuery(path: String, month: Int, sql: String): List<RecordBatch> {
-    val monthStr = String.format("%02d", month)
-//    val filename = "$path/yc-$monthStr.csv"
-    // VendorID MAX
-    // 1 70.9
-    // 2 70.0
-    val filename = "$path/ych-$monthStr.csv"
-    val ctx = ExecutionContext()
-    ctx.registerCsv("tripdata", filename)
-    val df = ctx.sql(sql)
-    return ctx.execute(df).toList()
 }
 
 private class InMemoryDataSource(val schema: Schema, val data: List<RecordBatch>) : DataSource {
@@ -2388,12 +2051,7 @@ private fun main() {
     val start = System.currentTimeMillis()
     val deferred = (1..12).map { month ->
         GlobalScope.async {
-            val sql = "SELECT VendorID, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY VendorID"
-            val partitionStart = System.currentTimeMillis()
-            val result = executeQuery(".", month, sql)
-            val duration = System.currentTimeMillis() - partitionStart
-            println("Query against month $month took $duration ms")
-            result
+            executePartialQuery(month)
         }
     }
     val results: List<RecordBatch> = runBlocking {
@@ -2410,6 +2068,24 @@ private fun main() {
     val result = ctx.execute(df)
 
     printQueryResult(result)
+}
+
+private fun executePartialQuery(month: Int): List<RecordBatch> {
+    val sql = "SELECT VendorID, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY VendorID"
+    val partitionStart = System.currentTimeMillis()
+    val monthStr = String.format("%02d", month)
+    //    val filename = "$path/yc-$monthStr.csv"
+    // VendorID MAX
+    // 1 70.9
+    // 2 70.0
+    val filename = "ych-$monthStr.csv"
+    val ctx = ExecutionContext()
+    ctx.registerCsv("tripdata", filename)
+    val df = ctx.sql(sql)
+    val result = ctx.execute(df).toList()
+    val duration = System.currentTimeMillis() - partitionStart
+    println("Query against month $month took $duration ms")
+    return result
 }
 
 private fun printQueryResult(queryResult: Sequence<RecordBatch>) {
