@@ -11,26 +11,17 @@ import org.apache.arrow.vector.types.pojo.ArrowType
 import java.io.File
 import java.io.FileNotFoundException
 import java.sql.SQLException
-import java.util.*
-import java.util.logging.Logger
 import kotlin.NoSuchElementException
 import kotlin.collections.ArrayList
 import kotlin.collections.HashMap
 import kotlin.collections.listOf as listOf1
 
 private object ArrowTypes {
-    val BooleanType = ArrowType.Bool()
-    val Int8Type = ArrowType.Int(8, true)
-    val Int16Type = ArrowType.Int(16, true)
-    val Int32Type = ArrowType.Int(32, true)
-    val Int64Type = ArrowType.Int(64, true)
-    val FloatType = ArrowType.FloatingPoint(FloatingPointPrecision.SINGLE)
     val DoubleType = ArrowType.FloatingPoint(FloatingPointPrecision.DOUBLE)
     val StringType = ArrowType.Utf8()
 }
 
 private interface ColumnVector {
-    fun getType(): ArrowType
     fun getValue(i: Int): Any?
     fun size(): Int
 }
@@ -74,7 +65,6 @@ private interface DataSource {
     fun scan(projection: List<String>): Sequence<RecordBatch>
 }
 
-// A relation with a known schema
 private interface LogicalPlan {
     fun schema(): Schema
     fun children(): List<LogicalPlan>
@@ -106,8 +96,6 @@ private abstract class AggregateExpr(
     }
 }
 
-//private class Sum(input: LogicalExpr) : AggregateExpr("SUM", input)
-//private class Min(input: LogicalExpr) : AggregateExpr("MIN", input)
 private class Max(input: LogicalExpr) : AggregateExpr("MAX", input)
 
 private class Scan(
@@ -161,22 +149,6 @@ private class Projection(
     }
 }
 
-//private class Selection(
-//    val input: LogicalPlan, val expr: LogicalExpr
-//) : LogicalPlan {
-//    override fun schema(): Schema {
-//        return input.schema()
-//    }
-//
-//    override fun children(): List<LogicalPlan> {
-//        return listOf1(input)
-//    }
-//
-//    override fun toString(): String {
-//        return "Filter: $expr"
-//    }
-//}
-
 private class Aggregate(
     val input: LogicalPlan, val groupExpr: List<LogicalExpr>, val aggExpr: List<AggregateExpr>
 ) : LogicalPlan {
@@ -203,20 +175,6 @@ private class ReaderAsSequence(
 
 private class ArrowFieldVector(val field: FieldVector) : ColumnVector {
 
-    override fun getType(): ArrowType {
-        return when (field) {
-            is BitVector -> ArrowTypes.BooleanType
-            is TinyIntVector -> ArrowTypes.Int8Type
-            is SmallIntVector -> ArrowTypes.Int16Type
-            is IntVector -> ArrowTypes.Int32Type
-            is BigIntVector -> ArrowTypes.Int64Type
-            is Float4Vector -> ArrowTypes.FloatType
-            is Float8Vector -> ArrowTypes.DoubleType
-            is VarCharVector -> ArrowTypes.StringType
-            else -> throw IllegalStateException()
-        }
-    }
-
     override fun getValue(i: Int): Any? {
 
         if (field.isNull(i)) {
@@ -224,12 +182,6 @@ private class ArrowFieldVector(val field: FieldVector) : ColumnVector {
         }
 
         return when (field) {
-            is BitVector -> field.get(i) == 1
-            is TinyIntVector -> field.get(i)
-            is SmallIntVector -> field.get(i)
-            is IntVector -> field.get(i)
-            is BigIntVector -> field.get(i)
-            is Float4Vector -> field.get(i)
             is Float8Vector -> field.get(i)
             is VarCharVector -> {
                 val bytes = field.get(i)
@@ -311,6 +263,7 @@ private class ReaderIterator(
                     val valueStr = row.value.getValue(field.value.name, "").trim()
                     vector.setSafe(row.index, valueStr.toByteArray())
                 }
+
                 else -> throw IllegalStateException("No support for reading CSV columns with data type $vector")
             }
             field.value.valueCount = rows.size
@@ -320,10 +273,6 @@ private class ReaderIterator(
     }
 }
 
-/**
- * Simple CSV data source. If no schema is provided then it assumes that the first line contains
- * field names and that all values are strings.
- */
 private class CsvDataSource(
     private val filename: String,
     private val hasHeaders: Boolean,
@@ -331,7 +280,6 @@ private class CsvDataSource(
     val schema: Schema?,
 ) : DataSource {
 
-    private val logger = Logger.getLogger(CsvDataSource::class.simpleName)
 
     private val finalSchema: Schema by lazy { schema ?: inferSchema() }
 
@@ -353,7 +301,6 @@ private class CsvDataSource(
     }
 
     override fun scan(projection: List<String>): Sequence<RecordBatch> {
-        logger.fine("scan() projection=$projection")
 
         val file = File(filename)
         if (!file.exists()) {
@@ -376,7 +323,6 @@ private class CsvDataSource(
         }
 
         val parser = buildParser(settings)
-        // parser will close once the end of the reader is reached
         parser.beginParsing(file.inputStream().reader())
         parser.detectedFormat
 
@@ -384,7 +330,6 @@ private class CsvDataSource(
     }
 
     private fun inferSchema(): Schema {
-        logger.fine("inferSchema()")
 
         val file = File(filename)
         if (!file.exists()) {
@@ -397,7 +342,6 @@ private class CsvDataSource(
             parser.detectedFormat
 
             parser.parseNext()
-            // some delimiters cause sparse arrays, so remove null columns in the parsed header
             val headers = parser.context.parsedHeaders().filterNotNull()
 
             val schema = if (hasHeaders) {
@@ -425,10 +369,6 @@ private class DataFrameImpl(private val plan: LogicalPlan) : DataFrame {
     override fun project(expr: List<LogicalExpr>): DataFrame {
         return DataFrameImpl(Projection(plan, expr))
     }
-
-//    override fun filter(expr: LogicalExpr): DataFrame {
-//        return DataFrameImpl(Selection(plan, expr))
-//    }
 
     override fun aggregate(groupBy: List<LogicalExpr>, aggregateExpr: List<AggregateExpr>): DataFrame {
         return DataFrameImpl(Aggregate(plan, groupBy, aggregateExpr))
@@ -470,12 +410,10 @@ private class ExecutionContext {
         register(tablename, DataFrameImpl(Scan(tablename, datasource, listOf1())))
     }
 
-    /** Execute the logical plan represented by a DataFrame */
     fun execute(df: DataFrame): Sequence<RecordBatch> {
         return execute(df.logicalPlan())
     }
 
-    /** Execute the provided logical plan */
     private fun execute(plan: LogicalPlan): Sequence<RecordBatch> {
         val optimizedPlan = ProjectionPushDownRule().optimize(plan)
         val physicalPlan = createPhysicalPlan(optimizedPlan)
@@ -503,7 +441,6 @@ private class Alias(val expr: LogicalExpr, val alias: String) : LogicalExpr {
     }
 }
 
-/** Convenience method to wrap the current expression in an alias using an infix operator */
 private interface PhysicalPlan {
     fun schema(): Schema
     fun execute(): Sequence<RecordBatch>
@@ -529,12 +466,6 @@ object FieldVectorFactory {
     fun create(arrowType: ArrowType, initialCapacity: Int): FieldVector {
         val rootAllocator = RootAllocator(Long.MAX_VALUE)
         val fieldVector: FieldVector = when (arrowType) {
-            ArrowTypes.BooleanType -> BitVector("v", rootAllocator)
-            ArrowTypes.Int8Type -> TinyIntVector("v", rootAllocator)
-            ArrowTypes.Int16Type -> SmallIntVector("v", rootAllocator)
-            ArrowTypes.Int32Type -> IntVector("v", rootAllocator)
-            ArrowTypes.Int64Type -> BigIntVector("v", rootAllocator)
-            ArrowTypes.FloatType -> Float4Vector("v", rootAllocator)
             ArrowTypes.DoubleType -> Float8Vector("v", rootAllocator)
             ArrowTypes.StringType -> VarCharVector("v", rootAllocator)
             else -> throw IllegalStateException()
@@ -554,70 +485,8 @@ private class ArrowVectorBuilder(private val fieldVector: FieldVector) {
             is VarCharVector -> {
                 if (value == null) {
                     fieldVector.setNull(i)
-                } else if (value is ByteArray) {
-                    fieldVector.set(i, value)
                 } else {
                     fieldVector.set(i, value.toString().toByteArray())
-                }
-            }
-
-            is TinyIntVector -> {
-                if (value == null) {
-                    fieldVector.setNull(i)
-                } else if (value is Number) {
-                    fieldVector.set(i, value.toByte())
-                } else if (value is String) {
-                    fieldVector.set(i, value.toByte())
-                } else {
-                    throw IllegalStateException()
-                }
-            }
-
-            is SmallIntVector -> {
-                if (value == null) {
-                    fieldVector.setNull(i)
-                } else if (value is Number) {
-                    fieldVector.set(i, value.toShort())
-                } else if (value is String) {
-                    fieldVector.set(i, value.toShort())
-                } else {
-                    throw IllegalStateException()
-                }
-            }
-
-            is IntVector -> {
-                if (value == null) {
-                    fieldVector.setNull(i)
-                } else if (value is Number) {
-                    fieldVector.set(i, value.toInt())
-                } else if (value is String) {
-                    fieldVector.set(i, value.toInt())
-                } else {
-                    throw IllegalStateException()
-                }
-            }
-
-            is BigIntVector -> {
-                if (value == null) {
-                    fieldVector.setNull(i)
-                } else if (value is Number) {
-                    fieldVector.set(i, value.toLong())
-                } else if (value is String) {
-                    fieldVector.set(i, value.toLong())
-                } else {
-                    throw IllegalStateException()
-                }
-            }
-
-            is Float4Vector -> {
-                if (value == null) {
-                    fieldVector.setNull(i)
-                } else if (value is Number) {
-                    fieldVector.set(i, value.toFloat())
-                } else if (value is String) {
-                    fieldVector.set(i, value.toFloat())
-                } else {
-                    throw IllegalStateException()
                 }
             }
 
@@ -625,8 +494,6 @@ private class ArrowVectorBuilder(private val fieldVector: FieldVector) {
                 if (value == null) {
                     fieldVector.setNull(i)
                 } else if (value is Number) {
-                    fieldVector.set(i, value.toDouble())
-                } else if (value is String) {
                     fieldVector.set(i, value.toDouble())
                 } else {
                     throw IllegalStateException()
@@ -696,53 +563,8 @@ private class MaxAccumulator : Accumulator {
     }
 }
 
-//private class SumExpression(private val expr: Expression) : AggregateExpression {
-//
-//    override fun inputExpression(): Expression {
-//        return expr
-//    }
-//
-//    override fun createAccumulator(): Accumulator {
-//        return SumAccumulator()
-//    }
-//
-//    override fun toString(): String {
-//        return "SUM($expr)"
-//    }
-//}
-
-//private class SumAccumulator : Accumulator {
-//
-//    var value: Any? = null
-//
-//    override fun accumulate(value: Any?) {
-//        if (value != null) {
-//            if (this.value == null) {
-//                this.value = value
-//            } else {
-//                when (val currentValue = this.value) {
-//                    is Byte -> this.value = currentValue + value as Byte
-//                    is Short -> this.value = currentValue + value as Short
-//                    is Int -> this.value = currentValue + value as Int
-//                    is Long -> this.value = currentValue + value as Long
-//                    is Float -> this.value = currentValue + value as Float
-//                    is Double -> this.value = currentValue + value as Double
-//                    else -> throw UnsupportedOperationException(
-//                        "MIN is not implemented for type: ${value.javaClass.name}"
-//                    )
-//                }
-//            }
-//        }
-//    }
-//
-//    override fun finalValue(): Any? {
-//        return value
-//    }
-//}
-
 private class ScanExec(private val ds: DataSource, private val projection: List<String>) : PhysicalPlan {
     override fun schema(): Schema {
-        println("getting schema with projection: $projection")
         return ds.schema().select(projection)
     }
 
@@ -782,56 +604,6 @@ private class ProjectionExec(
     }
 }
 
-//private class SelectionExec(
-//    private val input: PhysicalPlan, private val expr: Expression
-//) : PhysicalPlan {
-//    override fun schema(): Schema {
-//        return input.schema()
-//    }
-//
-//    override fun execute(): Sequence<RecordBatch> {
-//        val input = input.execute()
-//        return input.map { batch ->
-//            val result = (expr.evaluate(batch) as ArrowFieldVector).field as BitVector
-//            val schema = batch.schema
-//            val columnCount = batch.schema.fields.size
-//            val filteredFields = (0..<columnCount).map {
-//                filter(batch.field(it), result)
-//            }
-//            val fields = filteredFields.map { ArrowFieldVector(it) }
-//            RecordBatch(schema, fields)
-//        }
-//    }
-//
-//    override fun children(): List<PhysicalPlan> {
-//        return listOf1(input)
-//    }
-//
-//    private fun filter(v: ColumnVector, selection: BitVector): FieldVector {
-//        val filteredVector = VarCharVector("v", RootAllocator(Long.MAX_VALUE))
-//        filteredVector.allocateNew()
-//        val builder = ArrowVectorBuilder(filteredVector)
-//        var count = 0
-//        (0..<selection.valueCount).forEach {
-//            if (selection.get(it) == 1) {
-//                builder.set(count, v.getValue(it))
-//                count++
-//            }
-//        }
-//        filteredVector.valueCount = count
-//        return filteredVector
-//    }
-//
-//    override fun toString(): String {
-//        return "SelectionExec: $expr"
-//    }
-//}
-
-//interface PhysicalAggregateExpression {
-//    fun inputExpression(): Expression
-//    fun createAccumulator(): Accumulator
-//}
-
 private class HashAggregateExec(
     private val input: PhysicalPlan,
     private val groupExpr: List<Expression>,
@@ -854,7 +626,6 @@ private class HashAggregateExec(
                         else -> value
                     }
                 }
-                // print(rowKey)
                 val accumulators = map.getOrPut(rowKey) { aggregateExpr.map { it.createAccumulator() } }
                 accumulators.withIndex().forEach { accum ->
                     val value = aggrInputValues[accum.index].getValue(rowIndex)
@@ -902,32 +673,10 @@ private fun createPhysicalExpr(expr: LogicalExpr, input: LogicalPlan): Expressio
 
     is ColumnIndex -> ColumnExpression(expr.i)
     is Alias -> {
-        // note that there is no physical expression for an alias since the alias
-        // only affects the name using in the planning phase and not how the aliased
-        // expression is executed
         createPhysicalExpr(expr.expr, input)
     }
 
-//    is LiteralLong -> LiteralLongExpression(expr.n)
-//    is LiteralDouble -> LiteralDoubleExpression(expr.n)
-//    is LiteralString -> LiteralStringExpression(expr.str)
     is CastExpr -> CastExpression(createPhysicalExpr(expr.expr, input), expr.dataType)
-//    is BinaryExpr -> {
-//        val l = createPhysicalExpr(expr.l, input)
-//        val r = createPhysicalExpr(expr.r, input)
-//        when (expr) {
-//            // comparison
-//            is Eq -> EqExpression(l, r)
-//
-//            // boolean
-//
-//            // math
-//            is Add -> AddExpression(l, r)
-//
-//            else -> throw IllegalStateException("Unsupported binary expression: $expr")
-//        }
-//    }
-
     else -> throw IllegalStateException("Unknown expr: $expr")
 }
 
@@ -941,20 +690,12 @@ private fun createPhysicalPlan(plan: LogicalPlan): PhysicalPlan {
             ProjectionExec(input, projectionSchema, projectionExpr)
         }
 
-//        is Selection -> {
-//            val input = createPhysicalPlan(plan.input)
-//            val filterExpr = createPhysicalExpr(plan.expr, plan.input)
-//            SelectionExec(input, filterExpr)
-//        }
-
         is Aggregate -> {
             val input = createPhysicalPlan(plan.input)
             val groupExpr = plan.groupExpr.map { createPhysicalExpr(it, plan.input) }
             val aggregateExpr = plan.aggExpr.map {
                 when (it) {
                     is Max -> MaxExpression(createPhysicalExpr(it.expr, plan.input))
-//                    is Sum -> SumExpression(createPhysicalExpr(it.expr, plan.input))
-//                    is Count -> CountExpression(createPhysicalExpr(it.expr, plan.input))
                     else -> throw IllegalStateException(
                         "Unsupported aggregate function: $it"
                     )
@@ -967,7 +708,6 @@ private fun createPhysicalPlan(plan: LogicalPlan): PhysicalPlan {
     }
 }
 
-/** Format a logical plan in human-readable form */
 private interface OptimizerRule {
     fun optimize(plan: LogicalPlan): LogicalPlan
 }
@@ -983,21 +723,14 @@ private fun extractColumns(expr: LogicalExpr, input: LogicalPlan, accum: Mutable
         is Column -> accum.add(expr.name)
         is ColumnIndex -> {
             val element = input.schema().fields[expr.i].name
-            println("ColumnIndex, found: $element")
             accum.add(element)
         }
 
         is Alias -> {
             extractColumns(expr.expr, input, accum)
-            println("Recursing into aliased expression: $expr")
         }
 
         is CastExpr -> extractColumns(expr.expr, input, accum)
-
-//        is LiteralString -> {}
-//        is LiteralDouble -> {}
-//        is LiteralLong -> {}
-//        is Eq -> {}
         is AggregateExpr -> {
             accum.add("fare_amount")
         }
@@ -1020,12 +753,6 @@ private class ProjectionPushDownRule : OptimizerRule {
                 val input = pushDown(plan.input, columnNames)
                 Projection(input, plan.expr)
             }
-
-//            is Selection -> {
-//                extractColumns(plan.expr, plan, columnNames)
-//                val input = pushDown(plan.input, columnNames)
-//                Selection(input, plan.expr)
-//            }
 
             is Aggregate -> {
                 extractColumns(plan.groupExpr, plan.input, columnNames)
@@ -1073,6 +800,7 @@ private class CastExpression(private val expr: Expression, private val dataType:
                     }
                 }
             }
+
             else -> throw IllegalStateException("Cast to $dataType is not supported")
         }
 
@@ -1082,45 +810,25 @@ private class CastExpression(private val expr: Expression, private val dataType:
 }
 
 private enum class Keyword : SqlTokenizer.TokenType {
-
-    /**
-     * common
-     */
-    FROM,
-    SELECT, AS, WHERE, ORDER, GROUP, BY, ASC, DESC,
+    AS,
+    BY,
     CAST,
     DOUBLE,
-//    AND, OR, XOR, IS, NOT, NULL, IN, BETWEEN, LIKE, ANY, ALL, EXISTS,
-
-    //    AVG, MAX, MIN, SUM, COUNT, GREATEST, LEAST, ROUND, TRUNC, POSITION, EXTRACT, LENGTH, CHAR_LENGTH, SUBSTRING, SUBSTR, INSTR, INITCAP, UPPER, LOWER, TRIM, LTRIM, RTRIM, BOTH, LEADING, TRAILING, TRANSLATE, CONVERT, LPAD, RPAD, DECODE, NVL,
+    FROM,
+    GROUP,
     MAX,
-
-    /**
-     * Constraints
-     */
-    CONSTRAINT, UNIQUE, PRIMARY, FOREIGN, KEY, CHECK, REFERENCES;
+    ORDER,
+    SELECT;
 
     companion object {
         private val keywords = entries.associateBy(Keyword::name)
-        fun textOf(text: String) = keywords[text.uppercase(Locale.getDefault())]
+        fun textOf(text: String) = keywords[text.uppercase()]
     }
 }
 
 enum class Symbol(val text: String) : SqlTokenizer.TokenType {
 
-    LEFT_PAREN("("), RIGHT_PAREN(")"), LEFT_BRACE("{"), RIGHT_BRACE("}"), LEFT_BRACKET("["), RIGHT_BRACKET("]"), SEMI(";"), COMMA(
-        ","
-    ),
-    DOT("."), DOUBLE_DOT(".."), PLUS("+"), SUB("-"), STAR("*"), SLASH("/"), QUESTION("?"), EQ("="), GT(">"), LT("<"), BANG(
-        "!"
-    ),
-    TILDE("~"), CARET("^"), PERCENT("%"), COLON(":"), DOUBLE_COLON("::"), COLON_EQ(":="), LT_EQ("<="), GT_EQ(">="), LT_EQ_GT(
-        "<=>"
-    ),
-    LT_GT("<>"), BANG_EQ("!="), BANG_GT("!>"), BANG_LT("!<"), AMP("&"), BAR("|"), DOUBLE_AMP("&&"), DOUBLE_BAR("||"), DOUBLE_LT(
-        "<<"
-    ),
-    DOUBLE_GT(">>"), AT("@"), POUND("#");
+    LEFT_PAREN("("), RIGHT_PAREN(")"), COMMA(",");
 
     companion object {
         private val symbols = entries.associateBy(Symbol::text)
@@ -1155,9 +863,6 @@ private class SqlTokenizer(val sql: String) {
     private var offset = 0
 
     class TokenStream(private val tokens: List<Token>) {
-
-        private val logger = Logger.getLogger(TokenStream::class.simpleName)
-
         var i = 0
 
         fun peek(): Token? {
@@ -1189,13 +894,10 @@ private class SqlTokenizer(val sql: String) {
 
         fun consumeKeyword(s: String): Boolean {
             val peek = peek()
-            logger.fine("consumeKeyword('$s') next token is $peek")
             return if (peek?.type is Keyword && peek.text == s) {
                 i++
-                logger.fine("consumeKeyword() returning true")
                 true
             } else {
-                logger.fine("consumeKeyword() returning false")
                 false
             }
         }
@@ -1286,19 +988,10 @@ private class SqlTokenizer(val sql: String) {
         return token
     }
 
-    /**
-     * skip whitespace.
-     * @return offset after whitespace skipped
-     */
     private fun skipWhitespace(startOffset: Int): Int {
         return sql.indexOfFirst(startOffset) { ch -> !ch.isWhitespace() }
     }
 
-    /**
-     * scan number.
-     *
-     * @return number token
-     */
     private fun scanNumber(startOffset: Int): Token {
         var endOffset = if ('-' == sql[startOffset]) {
             sql.indexOfFirst(startOffset + 1) { ch -> !ch.isDigit() }
@@ -1315,11 +1008,6 @@ private class SqlTokenizer(val sql: String) {
         return Token(sql.substring(startOffset, endOffset), if (isFloat) Literal.DOUBLE else Literal.LONG, endOffset)
     }
 
-    /**
-     * scan identifier.
-     *
-     * @return identifier token
-     */
     private fun scanIdentifier(startOffset: Int): Token {
         if ('`' == sql[startOffset]) {
             val endOffset: Int = getOffsetUntilTerminatedChar('`', startOffset)
@@ -1327,50 +1015,15 @@ private class SqlTokenizer(val sql: String) {
         }
         val endOffset = sql.indexOfFirst(startOffset) { ch -> !Literal.isIdentifierPart(ch) }
         val text: String = sql.substring(startOffset, endOffset)
-        return if (isAmbiguousIdentifier(text)) {
-            Token(text, processAmbiguousIdentifier(endOffset, text), endOffset)
-        } else {
-            val tokenType: TokenType = Keyword.textOf(text) ?: Literal.IDENTIFIER
-            Token(text, tokenType, endOffset)
-        }
+        val tokenType: TokenType = Keyword.textOf(text) ?: Literal.IDENTIFIER
+        return Token(text, tokenType, endOffset)
     }
 
-    /**
-     * table name: group / order
-     * keyword: group by / order by
-     *
-     * @return
-     */
-    private fun isAmbiguousIdentifier(text: String): Boolean {
-        return Keyword.ORDER.name.equals(text, true) || Keyword.GROUP.name.equals(text, true)
-    }
-
-    /**
-     * process group by | order by
-     */
-    private fun processAmbiguousIdentifier(startOffset: Int, text: String): TokenType {
-        val skipWhitespaceOffset = skipWhitespace(startOffset)
-        return if (skipWhitespaceOffset != sql.length && Keyword.BY.name.equals(
-                sql.substring(
-                    skipWhitespaceOffset, skipWhitespaceOffset + 2
-                ), true
-            )
-        ) Keyword.textOf(text)!! else Literal.IDENTIFIER
-    }
-
-    /**
-     *  find another char's offset equals terminatedChar
-     */
     private fun getOffsetUntilTerminatedChar(terminatedChar: Char, startOffset: Int): Int {
         val offset = sql.indexOf(terminatedChar, startOffset)
         return if (offset != -1) offset else throw TokenizeException()
     }
 
-    /**
-     * scan symbol.
-     *
-     * @return symbol token
-     */
     private fun scanSymbol(startOffset: Int): Token {
         var endOffset = sql.indexOfFirst(startOffset) { ch -> !Symbol.isSymbol(ch) }
         var text = sql.substring(offset, endOffset)
@@ -1381,9 +1034,6 @@ private class SqlTokenizer(val sql: String) {
         return Token(text, symbol ?: throw TokenizeException(), endOffset)
     }
 
-    /**
-     * scan chars like 'abc' or "abc"
-     */
     private fun scanChars(startOffset: Int, terminatedChar: Char): Token {
         val endOffset = getOffsetUntilTerminatedChar(terminatedChar, startOffset + 1)
         return Token(sql.substring(startOffset + 1, endOffset), Literal.STRING, endOffset + 1)
@@ -1403,135 +1053,71 @@ private class TokenizeException : Throwable()
 
 private interface SqlExpr
 
-/** Pratt Top Down Operator Precedence Parser. See https://tdop.github.io/ for paper. */
-private interface PrattParser {
-
-    /** Parse an expression */
-    fun parse(precedence: Int = 0): SqlExpr? {
-        var expr = parsePrefix() ?: return null
-        while (precedence < nextPrecedence()) {
-            expr = parseInfix(expr, nextPrecedence())
-        }
-        return expr
-    }
-
-    /** Get the precedence of the next token */
-    fun nextPrecedence(): Int
-
-    /** Parse the next prefix expression */
-    fun parsePrefix(): SqlExpr?
-
-    /** Parse the next infix expression */
-    fun parseInfix(left: SqlExpr, precedence: Int): SqlExpr
-}
-
-/** Simple SQL identifier such as a table or column name */
 private data class SqlIdentifier(val id: String) : SqlExpr {
     override fun toString() = id
 }
 
-///** Binary expression */
-//private data class SqlBinaryExpr(val l: SqlExpr, val op: String, val r: SqlExpr) : SqlExpr {
-//    override fun toString(): String = "$l $op $r"
-//}
-
-///** SQL literal string */
-//private data class SqlString(val value: String) : SqlExpr {
-//    override fun toString() = "'$value'"
-//}
-
-///** SQL literal long */
-//private data class SqlLong(val value: Long) : SqlExpr {
-//    override fun toString() = "$value"
-//}
-
-///** SQL literal double */
-//private data class SqlDouble(val value: Double) : SqlExpr {
-//    override fun toString() = "$value"
-//}
-
-/** SQL function call */
 private data class SqlFunction(val id: String, val args: List<SqlExpr>) : SqlExpr {
     override fun toString() = id
 }
 
-/** SQL aliased expression */
 private data class SqlAlias(val expr: SqlExpr, val alias: SqlIdentifier) : SqlExpr
-
 private data class SqlCast(val expr: SqlExpr, val dataType: SqlIdentifier) : SqlExpr
-
 private data class SqlSort(val expr: SqlExpr, val asc: Boolean) : SqlExpr
-
 private interface SqlRelation : SqlExpr
 
 private data class SqlSelect(
     val projection: List<SqlExpr>,
-    val selection: SqlExpr?,
     val groupBy: List<SqlExpr>,
     val orderBy: List<SqlExpr>,
-    val having: SqlExpr?,
     val tableName: String
 ) : SqlRelation
 
-private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattParser {
+// Pratt
+private class SqlParser(private val tokens: SqlTokenizer.TokenStream) {
 
-    override fun nextPrecedence(): Int {
+    fun parse(precedence: Int = 0): SqlExpr? {
+        var expr = parsePrefix() ?: return null
+        while (precedence < nextPrecedence()) {
+            expr = parseInfix(expr)
+        }
+        return expr
+    }
+
+    fun nextPrecedence(): Int {
         val token = tokens.peek() ?: return 0
         val precedence = when (token.type) {
-            // Keywords
-            Keyword.AS, Keyword.ASC, Keyword.DESC -> 10
-//            Keyword.OR -> 20
-//            Keyword.AND -> 30
-
-            // Symbols
-            Symbol.LT, Symbol.LT_EQ, Symbol.EQ, Symbol.BANG_EQ, Symbol.GT_EQ, Symbol.GT -> 40
-
-            Symbol.PLUS, Symbol.SUB -> 50
-            Symbol.STAR, Symbol.SLASH -> 60
-
+            Keyword.AS -> 10
             Symbol.LEFT_PAREN -> 70
             else -> 0
         }
         return precedence
     }
 
-    override fun parsePrefix(): SqlExpr? {
+    fun parsePrefix(): SqlExpr? {
         val token = tokens.next() ?: return null
         val expr = when (token.type) {
-            // Keywords
             Keyword.SELECT -> parseSelect()
             Keyword.CAST -> parseCast()
-
             Keyword.MAX -> SqlIdentifier(token.text)
-
-            // type
-//            Keyword.INT -> SqlIdentifier(token.text)
             Keyword.DOUBLE -> SqlIdentifier(token.text)
-
-            // Literals
             SqlTokenizer.Literal.IDENTIFIER -> SqlIdentifier(token.text)
-//            SqlTokenizer.Literal.STRING -> SqlString(token.text)
-//            SqlTokenizer.Literal.LONG -> SqlLong(token.text.toLong())
-//            SqlTokenizer.Literal.DOUBLE -> SqlDouble(token.text.toDouble())
             else -> throw IllegalStateException("Unexpected token $token")
         }
         return expr
     }
 
-    override fun parseInfix(left: SqlExpr, precedence: Int): SqlExpr {
+    fun parseInfix(left: SqlExpr): SqlExpr {
         val token = tokens.peek()!!
         val expr = when (token.type) {
             Keyword.AS -> {
-                tokens.next() // consume the token
+                tokens.next()
                 SqlAlias(left, parseIdentifier())
             }
-            Keyword.ASC, Keyword.DESC -> {
-                tokens.next()
-                SqlSort(left, token.type == Keyword.ASC)
-            }
+
             Symbol.LEFT_PAREN -> {
                 if (left is SqlIdentifier) {
-                    tokens.next() // consume the token
+                    tokens.next()
                     val args = parseExprList()
                     assert(tokens.next()?.type == Symbol.RIGHT_PAREN)
                     SqlFunction(left.id, args)
@@ -1539,6 +1125,7 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
                     throw IllegalStateException("Unexpected LPAREN")
                 }
             }
+
             else -> throw IllegalStateException("Unexpected infix token $token")
         }
         return expr
@@ -1579,31 +1166,17 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
         if (tokens.consumeKeyword("FROM")) {
             val table = parseExpr() as SqlIdentifier
 
-            // parse optional WHERE clause
-            var filterExpr: SqlExpr? = null
-            if (tokens.consumeKeyword("WHERE")) {
-                filterExpr = parseExpr()
-            }
-
-            // parse optional GROUP BY clause
             var groupBy: List<SqlExpr> = listOf1()
             if (tokens.consumeKeywords(listOf1("GROUP", "BY"))) {
                 groupBy = parseExprList()
             }
 
-            // parse optional HAVING clause
-            var havingExpr: SqlExpr? = null
-            if (tokens.consumeKeyword("HAVING")) {
-                havingExpr = parseExpr()
-            }
-
-            // parse optional ORDER BY clause
             var orderBy: List<SqlExpr> = listOf1()
             if (tokens.consumeKeywords(listOf1("ORDER", "BY"))) {
                 orderBy = parseOrder()
             }
 
-            return SqlSelect(projection, filterExpr, groupBy, orderBy, havingExpr, table.id)
+            return SqlSelect(projection, groupBy, orderBy, table.id)
         } else {
             throw IllegalStateException("Expected FROM keyword, found ${tokens.peek()}")
         }
@@ -1613,7 +1186,6 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
         val list = mutableListOf<SqlExpr>()
         var expr = parseExpr()
         while (expr != null) {
-            // logger.fine("parseExprList parsed $expr")
             list.add(expr)
             if (tokens.peek()?.type == Symbol.COMMA) {
                 tokens.next()
@@ -1627,10 +1199,6 @@ private class SqlParser(private val tokens: SqlTokenizer.TokenStream) : PrattPar
 
     private fun parseExpr() = parse(0)
 
-    /**
-     * Parse the next token as an identifier, throwing an exception if the next token is not an
-     * identifier.
-     */
     private fun parseIdentifier(): SqlIdentifier {
         val expr = parseExpr() ?: throw SQLException("Expected identifier, found EOF")
         return when (expr) {
@@ -1652,65 +1220,43 @@ private class ColumnIndex(val i: Int) : LogicalExpr {
 }
 
 private fun createDataFrame(select: SqlSelect, tables: Map<String, DataFrame>): DataFrame {
-
-    // get a reference to the data source
     val table = tables[select.tableName] ?: throw SQLException("No table named '${select.tableName}'")
-
-    // translate projection sql expressions into logical expressions
     val projectionExpr = select.projection.map { createLogicalExpr(it, table) }
-
-    // build a list of columns referenced in the projection
-    val columnNamesInProjection = getReferencedColumns(projectionExpr)
-
     val aggregateExprCount = projectionExpr.count { isAggregateExpr(it) }
     if (aggregateExprCount == 0 && select.groupBy.isNotEmpty()) {
         throw SQLException("GROUP BY without aggregate expressions is not supported")
     }
-
-    // does the filter expression reference anything not in the final projection?
-    val columnNamesInSelection = getColumnsReferencedBySelection(select, table)
-
     var plan = table
 
-    if (aggregateExprCount == 0) {
-        return planNonAggregateQuery(
-            select, plan, projectionExpr, columnNamesInSelection, columnNamesInProjection
-        )
-    } else {
-        val projection = mutableListOf<LogicalExpr>()
-        val aggrExpr = mutableListOf<AggregateExpr>()
-        val numGroupCols = select.groupBy.size
-        var groupCount = 0
+    val projection = mutableListOf<LogicalExpr>()
+    val aggrExpr = mutableListOf<AggregateExpr>()
+    val numGroupCols = select.groupBy.size
+    var groupCount = 0
 
-        projectionExpr.forEach { expr ->
-            when (expr) {
-                is AggregateExpr -> {
-                    projection.add(ColumnIndex(numGroupCols + aggrExpr.size))
-                    aggrExpr.add(expr)
-                }
+    projectionExpr.forEach { expr ->
+        when (expr) {
+            is AggregateExpr -> {
+                projection.add(ColumnIndex(numGroupCols + aggrExpr.size))
+                aggrExpr.add(expr)
+            }
 
-                is Alias -> {
-                    projection.add(Alias(ColumnIndex(numGroupCols + aggrExpr.size), expr.alias))
-                    aggrExpr.add(expr.expr as AggregateExpr)
-                }
+            is Alias -> {
+                projection.add(Alias(ColumnIndex(numGroupCols + aggrExpr.size), expr.alias))
+                aggrExpr.add(expr.expr as AggregateExpr)
+            }
 
-                else -> {
-                    projection.add(ColumnIndex(groupCount))
-                    groupCount += 1
-                }
+            else -> {
+                projection.add(ColumnIndex(groupCount))
+                groupCount += 1
             }
         }
-        plan = planAggregateQuery(projectionExpr, select, columnNamesInSelection, plan, aggrExpr)
-        plan = plan.project(projection)
-//        if (select.having != null) {
-//            plan = plan.filter(createLogicalExpr(select.having, plan))
-//        }
-        return plan
     }
+    plan = planAggregateQuery(select, plan, aggrExpr)
+    plan = plan.project(projection)
+    return plan
 }
 
 private fun isAggregateExpr(expr: LogicalExpr): Boolean {
-    // TODO implement this correctly .. this just handles aggregates and aliased aggregates
     return when (expr) {
         is AggregateExpr -> true
         is Alias -> expr.expr is AggregateExpr
@@ -1718,128 +1264,22 @@ private fun isAggregateExpr(expr: LogicalExpr): Boolean {
     }
 }
 
-private fun planNonAggregateQuery(
-    select: SqlSelect,
-    df: DataFrame,
-    projectionExpr: List<LogicalExpr>,
-    columnNamesInSelection: Set<String>,
-    columnNamesInProjection: Set<String>
-): DataFrame {
-
-    var plan = df
-    if (select.selection == null) {
-        return plan.project(projectionExpr)
-    }
-
-    val missing = (columnNamesInSelection - columnNamesInProjection)
-    val n = projectionExpr.size
-    plan = plan.project(projectionExpr + missing.map { Column(it) })
-//    plan = plan.filter(createLogicalExpr(select.selection, plan))
-
-    // drop the columns that were added for the selection
-    val expr = (0..<n).map { i -> Column(plan.schema().fields[i].name) }
-    plan = plan.project(expr)
-
-    return plan
-}
-
 private fun planAggregateQuery(
-    projectionExpr: List<LogicalExpr>,
     select: SqlSelect,
-    columnNamesInSelection: Set<String>,
     df: DataFrame,
     aggregateExpr: List<AggregateExpr>
 ): DataFrame {
-    var plan = df
-    val projectionWithoutAggregates = projectionExpr.filterNot { it is AggregateExpr }
-
-    if (select.selection != null) {
-
-        val columnNamesInProjectionWithoutAggregates = getReferencedColumns(projectionWithoutAggregates)
-        val missing = (columnNamesInSelection - columnNamesInProjectionWithoutAggregates)
-
-        // because the selection references some columns that are not in the projection output we
-        // need to create an interim projection that has the additional columns, and then we need
-        // to remove them after the selection has been applied
-        plan = plan.project(projectionWithoutAggregates + missing.map { Column(it) })
-//        plan = plan.filter(createLogicalExpr(select.selection, plan))
-    }
-
-    val groupByExpr = select.groupBy.map { createLogicalExpr(it, plan) }
-    return plan.aggregate(groupByExpr, aggregateExpr)
-}
-
-private fun getColumnsReferencedBySelection(select: SqlSelect, table: DataFrame): Set<String> {
-    val accumulator = mutableSetOf<String>()
-    if (select.selection != null) {
-        val filterExpr = createLogicalExpr(select.selection, table)
-        visit(filterExpr, accumulator)
-        val validColumnNames = table.schema().fields.map { it.name }
-        accumulator.removeIf { name -> !validColumnNames.contains(name) }
-    }
-    return accumulator
-}
-
-private fun getReferencedColumns(exprs: List<LogicalExpr>): Set<String> {
-    val accumulator = mutableSetOf<String>()
-    exprs.forEach { visit(it, accumulator) }
-    return accumulator
-}
-
-private fun visit(expr: LogicalExpr, accumulator: MutableSet<String>) {
-    //        logger.info("BEFORE visit() $expr, accumulator=$accumulator")
-    when (expr) {
-        is Column -> accumulator.add(expr.name)
-        is Alias -> visit(expr.expr, accumulator)
-//        is BinaryExpr -> {
-//            visit(expr.l, accumulator)
-//            visit(expr.r, accumulator)
-//        }
-
-        is AggregateExpr -> visit(expr.expr, accumulator)
-    }
-    //        logger.info("AFTER visit() $expr, accumulator=$accumulator")
+    val groupByExpr = select.groupBy.map { createLogicalExpr(it, df) }
+    return df.aggregate(groupByExpr, aggregateExpr)
 }
 
 private fun createLogicalExpr(expr: SqlExpr, input: DataFrame): LogicalExpr {
     return when (expr) {
         is SqlIdentifier -> Column(expr.id)
-//        is SqlString -> LiteralString(expr.value)
-//        is SqlLong -> LiteralLong(expr.value)
-//        is SqlDouble -> LiteralDouble(expr.value)
-//        is SqlBinaryExpr -> {
-//            val l = createLogicalExpr(expr.l, input)
-//            val r = createLogicalExpr(expr.r, input)
-//            when (expr.op) {
-//                // comparison operators
-//                "=" -> Eq(l, r)
-//                "!=" -> Neq(l, r)
-//                ">" -> Gt(l, r)
-//                ">=" -> GtEq(l, r)
-//                "<" -> Lt(l, r)
-//                "<=" -> LtEq(l, r)
-//                // boolean operators
-//                "AND" -> And(l, r)
-//                "OR" -> Or(l, r)
-//                // math operators
-//                "+" -> Add(l, r)
-//                "-" -> Subtract(l, r)
-//                "*" -> Multiply(l, r)
-//                "/" -> Divide(l, r)
-//                "%" -> Modulus(l, r)
-//                else -> throw SQLException("Invalid operator ${expr.op}")
-//            }
-//        }
-        // is SqlUnaryExpr -> when (expr.op) {
-        // "NOT" -> Not(createLogicalExpr(expr.l, input))
-        // }
         is SqlAlias -> Alias(createLogicalExpr(expr.expr, input), expr.alias.id)
         is SqlCast -> CastExpr(createLogicalExpr(expr.expr, input), parseDataType(expr.dataType.id))
         is SqlFunction -> when (expr.id) {
-//            "MIN" -> Min(createLogicalExpr(expr.args.first(), input))
             "MAX" -> Max(createLogicalExpr(expr.args.first(), input))
-//            "SUM" -> Sum(createLogicalExpr(expr.args.first(), input))
-//            "AVG" -> Avg(createLogicalExpr(expr.args.first(), input))
             else -> throw SQLException("Invalid aggregate function: $expr")
         }
 
@@ -1896,11 +1336,7 @@ private fun executePartialQuery(month: Int): List<RecordBatch> {
     val sql = "SELECT VendorID, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY VendorID"
     val partitionStart = System.currentTimeMillis()
     val monthStr = String.format("%02d", month)
-    //    val filename = "$path/yc-$monthStr.csv"
-    // VendorID MAX
-    // 1 70.9
-    // 2 70.0
-    val filename = "ych-$monthStr.csv"
+    val filename = "yc-$monthStr.csv"
     val ctx = ExecutionContext()
     ctx.registerCsv("tripdata", filename)
     val df = ctx.sql(sql)
@@ -1911,13 +1347,7 @@ private fun executePartialQuery(month: Int): List<RecordBatch> {
 }
 
 private fun printQueryResult(queryResult: Sequence<RecordBatch>) {
-    var isFirst1 = true
     queryResult.forEach { batch ->
-        if (isFirst1) {
-            isFirst1 = false
-            val headers = batch.schema.fields.joinToString(" ") { it.name }
-            println(headers)
-        }
         (0..<batch.rowCount()).forEach { idx ->
             batch.fields.forEach { field ->
                 print(field.getValue(idx))
