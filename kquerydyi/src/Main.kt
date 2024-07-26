@@ -1413,8 +1413,7 @@ class ProjectionPushDownRule : OptimizerRule {
     }
 
     private fun pushDown(
-        plan: LogicalPlan,
-        columnNames: MutableSet<String>
+        plan: LogicalPlan, columnNames: MutableSet<String>
     ): LogicalPlan {
         return when (plan) {
             is Projection -> {
@@ -1465,13 +1464,12 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     if (vv == null) {
                         builder.set(it, null)
                     } else {
-                        val castValue =
-                            when (vv) {
-                                is ByteArray -> String(vv).toByte()
-                                is String -> vv.toByte()
-                                is Number -> vv.toByte()
-                                else -> throw IllegalStateException("Cannot cast value to Byte: $vv")
-                            }
+                        val castValue = when (vv) {
+                            is ByteArray -> String(vv).toByte()
+                            is String -> vv.toByte()
+                            is Number -> vv.toByte()
+                            else -> throw IllegalStateException("Cannot cast value to Byte: $vv")
+                        }
                         builder.set(it, castValue)
                     }
                 }
@@ -1483,13 +1481,12 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     if (vv == null) {
                         builder.set(it, null)
                     } else {
-                        val castValue =
-                            when (vv) {
-                                is ByteArray -> String(vv).toShort()
-                                is String -> vv.toShort()
-                                is Number -> vv.toShort()
-                                else -> throw IllegalStateException("Cannot cast value to Short: $vv")
-                            }
+                        val castValue = when (vv) {
+                            is ByteArray -> String(vv).toShort()
+                            is String -> vv.toShort()
+                            is Number -> vv.toShort()
+                            else -> throw IllegalStateException("Cannot cast value to Short: $vv")
+                        }
                         builder.set(it, castValue)
                     }
                 }
@@ -1501,13 +1498,12 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     if (vv == null) {
                         builder.set(it, null)
                     } else {
-                        val castValue =
-                            when (vv) {
-                                is ByteArray -> String(vv).toInt()
-                                is String -> vv.toInt()
-                                is Number -> vv.toInt()
-                                else -> throw IllegalStateException("Cannot cast value to Int: $vv")
-                            }
+                        val castValue = when (vv) {
+                            is ByteArray -> String(vv).toInt()
+                            is String -> vv.toInt()
+                            is Number -> vv.toInt()
+                            else -> throw IllegalStateException("Cannot cast value to Int: $vv")
+                        }
                         builder.set(it, castValue)
                     }
                 }
@@ -1519,13 +1515,12 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     if (vv == null) {
                         builder.set(it, null)
                     } else {
-                        val castValue =
-                            when (vv) {
-                                is ByteArray -> String(vv).toLong()
-                                is String -> vv.toLong()
-                                is Number -> vv.toLong()
-                                else -> throw IllegalStateException("Cannot cast value to Long: $vv")
-                            }
+                        val castValue = when (vv) {
+                            is ByteArray -> String(vv).toLong()
+                            is String -> vv.toLong()
+                            is Number -> vv.toLong()
+                            else -> throw IllegalStateException("Cannot cast value to Long: $vv")
+                        }
                         builder.set(it, castValue)
                     }
                 }
@@ -1537,13 +1532,12 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     if (vv == null) {
                         builder.set(it, null)
                     } else {
-                        val castValue =
-                            when (vv) {
-                                is ByteArray -> String(vv).toFloat()
-                                is String -> vv.toFloat()
-                                is Number -> vv.toFloat()
-                                else -> throw IllegalStateException("Cannot cast value to Float: $vv")
-                            }
+                        val castValue = when (vv) {
+                            is ByteArray -> String(vv).toFloat()
+                            is String -> vv.toFloat()
+                            is Number -> vv.toFloat()
+                            else -> throw IllegalStateException("Cannot cast value to Float: $vv")
+                        }
                         builder.set(it, castValue)
                     }
                 }
@@ -1555,13 +1549,12 @@ class CastExpression(val expr: Expression, val dataType: ArrowType) : Expression
                     if (vv == null) {
                         builder.set(it, null)
                     } else {
-                        val castValue =
-                            when (vv) {
-                                is ByteArray -> String(vv).toDouble()
-                                is String -> vv.toDouble()
-                                is Number -> vv.toDouble()
-                                else -> throw IllegalStateException("Cannot cast value to Double: $vv")
-                            }
+                        val castValue = when (vv) {
+                            is ByteArray -> String(vv).toDouble()
+                            is String -> vv.toDouble()
+                            is Number -> vv.toDouble()
+                            else -> throw IllegalStateException("Cannot cast value to Double: $vv")
+                        }
                         builder.set(it, castValue)
                     }
                 }
@@ -1606,65 +1599,17 @@ enum class Keyword : SqlTokenizer.TokenType {
     /**
      * common
      */
-    SCHEMA,
-    DATABASE,
-    TABLE,
-    COLUMN,
-    VIEW,
-    INDEX,
-    TRIGGER,
-    PROCEDURE,
-    TABLESPACE,
-    FUNCTION,
-    SEQUENCE,
-    CURSOR,
-    FROM,
-    TO,
-    OF,
-    IF,
-    ON,
-    FOR,
-    WHILE,
-    DO,
-    NO,
-    BY,
-    WITH,
-    WITHOUT,
-    TRUE,
-    FALSE,
-    TEMPORARY,
-    TEMP,
-    COMMENT,
+    SCHEMA, DATABASE, TABLE, COLUMN, VIEW, INDEX, TRIGGER, PROCEDURE, TABLESPACE, FUNCTION, SEQUENCE, CURSOR, FROM, TO, OF, IF, ON, FOR, WHILE, DO, NO, BY, WITH, WITHOUT, TRUE, FALSE, TEMPORARY, TEMP, COMMENT,
 
     /**
      * create
      */
-    CREATE,
-    REPLACE,
-    BEFORE,
-    AFTER,
-    INSTEAD,
-    EACH,
-    ROW,
-    STATEMENT,
-    EXECUTE,
-    BITMAP,
-    NOSORT,
-    REVERSE,
-    COMPILE,
+    CREATE, REPLACE, BEFORE, AFTER, INSTEAD, EACH, ROW, STATEMENT, EXECUTE, BITMAP, NOSORT, REVERSE, COMPILE,
 
     /**
      * alter
      */
-    ALTER,
-    ADD,
-    MODIFY,
-    RENAME,
-    ENABLE,
-    DISABLE,
-    VALIDATE,
-    USER,
-    IDENTIFIED,
+    ALTER, ADD, MODIFY, RENAME, ENABLE, DISABLE, VALIDATE, USER, IDENTIFIED,
 
     /**
      * truncate
@@ -1674,21 +1619,17 @@ enum class Keyword : SqlTokenizer.TokenType {
     /**
      * drop
      */
-    DROP,
-    CASCADE,
+    DROP, CASCADE,
 
     /**
      * insert
      */
-    INSERT,
-    INTO,
-    VALUES,
+    INSERT, INTO, VALUES,
 
     /**
      * update
      */
-    UPDATE,
-    SET,
+    UPDATE, SET,
 
     /**
      * delete
@@ -1698,153 +1639,32 @@ enum class Keyword : SqlTokenizer.TokenType {
     /**
      * select
      */
-    SELECT,
-    DISTINCT,
-    AS,
-    CASE,
-    WHEN,
-    ELSE,
-    THEN,
-    END,
-    LEFT,
-    RIGHT,
-    FULL,
-    INNER,
-    OUTER,
-    CROSS,
-    JOIN,
-    USE,
-    USING,
-    NATURAL,
-    WHERE,
-    ORDER,
-    ASC,
-    DESC,
-    GROUP,
-    HAVING,
-    UNION,
+    SELECT, DISTINCT, AS, CASE, WHEN, ELSE, THEN, END, LEFT, RIGHT, FULL, INNER, OUTER, CROSS, JOIN, USE, USING, NATURAL, WHERE, ORDER, ASC, DESC, GROUP, HAVING, UNION,
 
     /**
      * others
      */
-    DECLARE,
-    GRANT,
-    FETCH,
-    REVOKE,
-    CLOSE,
-    CAST,
-    NEW,
-    ESCAPE,
-    LOCK,
-    SOME,
-    LEAVE,
-    ITERATE,
-    REPEAT,
-    UNTIL,
-    OPEN,
-    OUT,
-    INOUT,
-    OVER,
-    ADVISE,
-    SIBLINGS,
-    LOOP,
-    EXPLAIN,
-    DEFAULT,
-    EXCEPT,
-    INTERSECT,
-    MINUS,
-    PASSWORD,
-    LOCAL,
-    GLOBAL,
-    STORAGE,
-    DATA,
-    COALESCE,
+    DECLARE, GRANT, FETCH, REVOKE, CLOSE, CAST, NEW, ESCAPE, LOCK, SOME, LEAVE, ITERATE, REPEAT, UNTIL, OPEN, OUT, INOUT, OVER, ADVISE, SIBLINGS, LOOP, EXPLAIN, DEFAULT, EXCEPT, INTERSECT, MINUS, PASSWORD, LOCAL, GLOBAL, STORAGE, DATA, COALESCE,
 
     /**
      * Types
      */
-    CHAR,
-    CHARACTER,
-    VARYING,
-    VARCHAR,
-    VARCHAR2,
-    INTEGER,
-    INT,
-    SMALLINT,
-    DECIMAL,
-    DEC,
-    NUMERIC,
-    FLOAT,
-    REAL,
-    DOUBLE,
-    PRECISION,
-    DATE,
-    TIME,
-    INTERVAL,
-    BOOLEAN,
-    BLOB,
+    CHAR, CHARACTER, VARYING, VARCHAR, VARCHAR2, INTEGER, INT, SMALLINT, DECIMAL, DEC, NUMERIC, FLOAT, REAL, DOUBLE, PRECISION, DATE, TIME, INTERVAL, BOOLEAN, BLOB,
 
     /**
      * Conditionals
      */
-    AND,
-    OR,
-    XOR,
-    IS,
-    NOT,
-    NULL,
-    IN,
-    BETWEEN,
-    LIKE,
-    ANY,
-    ALL,
-    EXISTS,
+    AND, OR, XOR, IS, NOT, NULL, IN, BETWEEN, LIKE, ANY, ALL, EXISTS,
 
     /**
      * Functions
      */
-    AVG,
-    MAX,
-    MIN,
-    SUM,
-    COUNT,
-    GREATEST,
-    LEAST,
-    ROUND,
-    TRUNC,
-    POSITION,
-    EXTRACT,
-    LENGTH,
-    CHAR_LENGTH,
-    SUBSTRING,
-    SUBSTR,
-    INSTR,
-    INITCAP,
-    UPPER,
-    LOWER,
-    TRIM,
-    LTRIM,
-    RTRIM,
-    BOTH,
-    LEADING,
-    TRAILING,
-    TRANSLATE,
-    CONVERT,
-    LPAD,
-    RPAD,
-    DECODE,
-    NVL,
+    AVG, MAX, MIN, SUM, COUNT, GREATEST, LEAST, ROUND, TRUNC, POSITION, EXTRACT, LENGTH, CHAR_LENGTH, SUBSTRING, SUBSTR, INSTR, INITCAP, UPPER, LOWER, TRIM, LTRIM, RTRIM, BOTH, LEADING, TRAILING, TRANSLATE, CONVERT, LPAD, RPAD, DECODE, NVL,
 
     /**
      * Constraints
      */
-    CONSTRAINT,
-    UNIQUE,
-    PRIMARY,
-    FOREIGN,
-    KEY,
-    CHECK,
-    REFERENCES;
+    CONSTRAINT, UNIQUE, PRIMARY, FOREIGN, KEY, CHECK, REFERENCES;
 
     companion object {
         private val keywords = values().associateBy(Keyword::name)
@@ -1854,46 +1674,19 @@ enum class Keyword : SqlTokenizer.TokenType {
 
 enum class Symbol(val text: String) : SqlTokenizer.TokenType {
 
-    LEFT_PAREN("("),
-    RIGHT_PAREN(")"),
-    LEFT_BRACE("{"),
-    RIGHT_BRACE("}"),
-    LEFT_BRACKET("["),
-    RIGHT_BRACKET("]"),
-    SEMI(";"),
-    COMMA(","),
-    DOT("."),
-    DOUBLE_DOT(".."),
-    PLUS("+"),
-    SUB("-"),
-    STAR("*"),
-    SLASH("/"),
-    QUESTION("?"),
-    EQ("="),
-    GT(">"),
-    LT("<"),
-    BANG("!"),
-    TILDE("~"),
-    CARET("^"),
-    PERCENT("%"),
-    COLON(":"),
-    DOUBLE_COLON("::"),
-    COLON_EQ(":="),
-    LT_EQ("<="),
-    GT_EQ(">="),
-    LT_EQ_GT("<=>"),
-    LT_GT("<>"),
-    BANG_EQ("!="),
-    BANG_GT("!>"),
-    BANG_LT("!<"),
-    AMP("&"),
-    BAR("|"),
-    DOUBLE_AMP("&&"),
-    DOUBLE_BAR("||"),
-    DOUBLE_LT("<<"),
-    DOUBLE_GT(">>"),
-    AT("@"),
-    POUND("#");
+    LEFT_PAREN("("), RIGHT_PAREN(")"), LEFT_BRACE("{"), RIGHT_BRACE("}"), LEFT_BRACKET("["), RIGHT_BRACKET("]"), SEMI(";"), COMMA(
+        ","
+    ),
+    DOT("."), DOUBLE_DOT(".."), PLUS("+"), SUB("-"), STAR("*"), SLASH("/"), QUESTION("?"), EQ("="), GT(">"), LT("<"), BANG(
+        "!"
+    ),
+    TILDE("~"), CARET("^"), PERCENT("%"), COLON(":"), DOUBLE_COLON("::"), COLON_EQ(":="), LT_EQ("<="), GT_EQ(">="), LT_EQ_GT(
+        "<=>"
+    ),
+    LT_GT("<>"), BANG_EQ("!="), BANG_GT("!>"), BANG_LT("!<"), AMP("&"), BAR("|"), DOUBLE_AMP("&&"), DOUBLE_BAR("||"), DOUBLE_LT(
+        "<<"
+    ),
+    DOUBLE_GT(">>"), AT("@"), POUND("#");
 
     companion object {
         private val symbols = values().associateBy(Symbol::text)
@@ -1910,9 +1703,7 @@ enum class Symbol(val text: String) : SqlTokenizer.TokenType {
 }
 
 data class Token(
-    val text: String,
-    val type: SqlTokenizer.TokenType,
-    val endOffset: Int
+    val text: String, val type: SqlTokenizer.TokenType, val endOffset: Int
 ) {
 
     override fun toString(): String {
@@ -1991,15 +1782,13 @@ class SqlTokenizer(val sql: String) {
         }
 
         override fun toString(): String {
-            return tokens.withIndex()
-                .map { (index, token) ->
+            return tokens.withIndex().map { (index, token) ->
                     if (index == i) {
                         "*$token"
                     } else {
                         token.toString()
                     }
-                }
-                .joinToString(" ")
+                }.joinToString(" ")
         }
     }
 
@@ -2016,10 +1805,7 @@ class SqlTokenizer(val sql: String) {
     interface TokenType
 
     enum class Literal : TokenType {
-        LONG,
-        DOUBLE,
-        STRING,
-        IDENTIFIER;
+        LONG, DOUBLE, STRING, IDENTIFIER;
 
         companion object {
             fun isNumberStart(ch: Char): Boolean {
@@ -2135,10 +1921,13 @@ class SqlTokenizer(val sql: String) {
      */
     private fun processAmbiguousIdentifier(startOffset: Int, text: String): TokenType {
         val skipWhitespaceOffset = skipWhitespace(startOffset)
-        return if (skipWhitespaceOffset != sql.length
-            && Keyword.BY.name.equals(sql.substring(skipWhitespaceOffset, skipWhitespaceOffset + 2), true)
-        )
-            Keyword.textOf(text)!! else Literal.IDENTIFIER
+        return if (skipWhitespaceOffset != sql.length && Keyword.BY.name.equals(
+                sql.substring(
+                    skipWhitespaceOffset,
+                    skipWhitespaceOffset + 2
+                ), true
+            )
+        ) Keyword.textOf(text)!! else Literal.IDENTIFIER
     }
 
     /**
@@ -2146,8 +1935,7 @@ class SqlTokenizer(val sql: String) {
      */
     private fun getOffsetUntilTerminatedChar(terminatedChar: Char, startOffset: Int): Int {
         val offset = sql.indexOf(terminatedChar, startOffset)
-        return if (offset != -1) offset else
-            throw TokenizeException("Must contain $terminatedChar in remain sql[$startOffset .. end]")
+        return if (offset != -1) offset else throw TokenizeException("Must contain $terminatedChar in remain sql[$startOffset .. end]")
     }
 
     /**
@@ -2263,23 +2051,21 @@ class SqlParser(val tokens: SqlTokenizer.TokenStream) : PrattParser {
 
     override fun nextPrecedence(): Int {
         val token = tokens.peek() ?: return 0
-        val precedence =
-            when (token.type) {
-                // Keywords
-                Keyword.AS, Keyword.ASC, Keyword.DESC -> 10
-                Keyword.OR -> 20
-                Keyword.AND -> 30
+        val precedence = when (token.type) {
+            // Keywords
+            Keyword.AS, Keyword.ASC, Keyword.DESC -> 10
+            Keyword.OR -> 20
+            Keyword.AND -> 30
 
-                // Symbols
-                Symbol.LT, Symbol.LT_EQ, Symbol.EQ,
-                Symbol.BANG_EQ, Symbol.GT_EQ, Symbol.GT -> 40
+            // Symbols
+            Symbol.LT, Symbol.LT_EQ, Symbol.EQ, Symbol.BANG_EQ, Symbol.GT_EQ, Symbol.GT -> 40
 
-                Symbol.PLUS, Symbol.SUB -> 50
-                Symbol.STAR, Symbol.SLASH -> 60
+            Symbol.PLUS, Symbol.SUB -> 50
+            Symbol.STAR, Symbol.SLASH -> 60
 
-                Symbol.LEFT_PAREN -> 70
-                else -> 0
-            }
+            Symbol.LEFT_PAREN -> 70
+            else -> 0
+        }
         logger.fine("nextPrecedence($token) returning $precedence")
         return precedence
     }
@@ -2287,25 +2073,24 @@ class SqlParser(val tokens: SqlTokenizer.TokenStream) : PrattParser {
     override fun parsePrefix(): SqlExpr? {
         logger.fine("parsePrefix() next token = ${tokens.peek()}")
         val token = tokens.next() ?: return null
-        val expr =
-            when (token.type) {
-                // Keywords
-                Keyword.SELECT -> parseSelect()
-                Keyword.CAST -> parseCast()
+        val expr = when (token.type) {
+            // Keywords
+            Keyword.SELECT -> parseSelect()
+            Keyword.CAST -> parseCast()
 
-                Keyword.MAX -> SqlIdentifier(token.text)
+            Keyword.MAX -> SqlIdentifier(token.text)
 
-                // type
-                Keyword.INT -> SqlIdentifier(token.text)
-                Keyword.DOUBLE -> SqlIdentifier(token.text)
+            // type
+            Keyword.INT -> SqlIdentifier(token.text)
+            Keyword.DOUBLE -> SqlIdentifier(token.text)
 
-                // Literals
-                SqlTokenizer.Literal.IDENTIFIER -> SqlIdentifier(token.text)
-                SqlTokenizer.Literal.STRING -> SqlString(token.text)
-                SqlTokenizer.Literal.LONG -> SqlLong(token.text.toLong())
-                SqlTokenizer.Literal.DOUBLE -> SqlDouble(token.text.toDouble())
-                else -> throw IllegalStateException("Unexpected token $token")
-            }
+            // Literals
+            SqlTokenizer.Literal.IDENTIFIER -> SqlIdentifier(token.text)
+            SqlTokenizer.Literal.STRING -> SqlString(token.text)
+            SqlTokenizer.Literal.LONG -> SqlLong(token.text.toLong())
+            SqlTokenizer.Literal.DOUBLE -> SqlDouble(token.text.toDouble())
+            else -> throw IllegalStateException("Unexpected token $token")
+        }
         logger.fine("parsePrefix() returning $expr")
         return expr
     }
@@ -2313,50 +2098,46 @@ class SqlParser(val tokens: SqlTokenizer.TokenStream) : PrattParser {
     override fun parseInfix(left: SqlExpr, precedence: Int): SqlExpr {
         logger.fine("parseInfix() next token = ${tokens.peek()}")
         val token = tokens.peek()!!
-        val expr =
-            when (token.type) {
-                Symbol.PLUS, Symbol.SUB, Symbol.STAR, Symbol.SLASH,
-                Symbol.EQ, Symbol.GT, Symbol.LT -> {
-                    tokens.next() // consume the token
-                    SqlBinaryExpr(
-                        left, token.text, parse(precedence) ?: throw SQLException("Error parsing infix")
-                    )
-                }
-
-                // keywords
-                Keyword.AS -> {
-                    tokens.next() // consume the token
-                    SqlAlias(left, parseIdentifier())
-                }
-
-                Keyword.AND, Keyword.OR -> {
-                    tokens.next() // consume the token
-                    SqlBinaryExpr(
-                        left,
-                        token.text,
-                        parse(precedence) ?: throw SQLException("Error parsing infix")
-                    )
-                }
-
-                Keyword.ASC, Keyword.DESC -> {
-                    tokens.next()
-                    SqlSort(left, token.type == Keyword.ASC)
-                }
-
-
-                Symbol.LEFT_PAREN -> {
-                    if (left is SqlIdentifier) {
-                        tokens.next() // consume the token
-                        val args = parseExprList()
-                        assert(tokens.next()?.type == Symbol.RIGHT_PAREN)
-                        SqlFunction(left.id, args)
-                    } else {
-                        throw IllegalStateException("Unexpected LPAREN")
-                    }
-                }
-
-                else -> throw IllegalStateException("Unexpected infix token $token")
+        val expr = when (token.type) {
+            Symbol.PLUS, Symbol.SUB, Symbol.STAR, Symbol.SLASH, Symbol.EQ, Symbol.GT, Symbol.LT -> {
+                tokens.next() // consume the token
+                SqlBinaryExpr(
+                    left, token.text, parse(precedence) ?: throw SQLException("Error parsing infix")
+                )
             }
+
+            // keywords
+            Keyword.AS -> {
+                tokens.next() // consume the token
+                SqlAlias(left, parseIdentifier())
+            }
+
+            Keyword.AND, Keyword.OR -> {
+                tokens.next() // consume the token
+                SqlBinaryExpr(
+                    left, token.text, parse(precedence) ?: throw SQLException("Error parsing infix")
+                )
+            }
+
+            Keyword.ASC, Keyword.DESC -> {
+                tokens.next()
+                SqlSort(left, token.type == Keyword.ASC)
+            }
+
+
+            Symbol.LEFT_PAREN -> {
+                if (left is SqlIdentifier) {
+                    tokens.next() // consume the token
+                    val args = parseExprList()
+                    assert(tokens.next()?.type == Symbol.RIGHT_PAREN)
+                    SqlFunction(left.id, args)
+                } else {
+                    throw IllegalStateException("Unexpected LPAREN")
+                }
+            }
+
+            else -> throw IllegalStateException("Unexpected infix token $token")
+        }
         logger.fine("parseInfix() returning $expr")
         return expr
     }
@@ -2473,8 +2254,7 @@ class ColumnIndex(val i: Int) : LogicalExpr {
 fun createDataFrame(select: SqlSelect, tables: Map<String, DataFrame>): DataFrame {
 
     // get a reference to the data source
-    val table =
-        tables[select.tableName] ?: throw SQLException("No table named '${select.tableName}'")
+    val table = tables[select.tableName] ?: throw SQLException("No table named '${select.tableName}'")
 
     // translate projection sql expressions into logical expressions
     val projectionExpr = select.projection.map { createLogicalExpr(it, table) }
@@ -2591,8 +2371,7 @@ private fun planAggregateQuery(
 
     if (select.selection != null) {
 
-        val columnNamesInProjectionWithoutAggregates =
-            getReferencedColumns(projectionWithoutAggregates)
+        val columnNamesInProjectionWithoutAggregates = getReferencedColumns(projectionWithoutAggregates)
 
         val missing = (columnNamesInSelection - columnNamesInProjectionWithoutAggregates)
 
@@ -2683,14 +2462,13 @@ private fun createLogicalExpr(expr: SqlExpr, input: DataFrame): LogicalExpr {
         // }
         is SqlAlias -> Alias(createLogicalExpr(expr.expr, input), expr.alias.id)
         is SqlCast -> CastExpr(createLogicalExpr(expr.expr, input), parseDataType(expr.dataType.id))
-        is SqlFunction ->
-            when (expr.id) {
-                "MIN" -> Min(createLogicalExpr(expr.args.first(), input))
-                "MAX" -> Max(createLogicalExpr(expr.args.first(), input))
-                "SUM" -> Sum(createLogicalExpr(expr.args.first(), input))
-                "AVG" -> Avg(createLogicalExpr(expr.args.first(), input))
-                else -> throw SQLException("Invalid aggregate function: $expr")
-            }
+        is SqlFunction -> when (expr.id) {
+            "MIN" -> Min(createLogicalExpr(expr.args.first(), input))
+            "MAX" -> Max(createLogicalExpr(expr.args.first(), input))
+            "SUM" -> Sum(createLogicalExpr(expr.args.first(), input))
+            "AVG" -> Avg(createLogicalExpr(expr.args.first(), input))
+            else -> throw SQLException("Invalid aggregate function: $expr")
+        }
 
         else -> throw SQLException("Cannot create logical expression from sql expression: $expr")
     }
@@ -2712,13 +2490,10 @@ private fun plan(sql: String): LogicalPlan {
     val parsedQuery = SqlParser(tokens).parse()
     println(parsedQuery)
 
-    val tables =
-        mapOf(
-            "employee" to
-                    DataFrameImpl(Scan("", CsvDataSource("employee.csv", true, 1024, null), listOf1())),
-            "yello" to
-                    DataFrameImpl(Scan("", CsvDataSource("yellow_tripdata_2024-01.csv", true, 1024, null), listOf1()))
-        )
+    val tables = mapOf(
+        "employee" to DataFrameImpl(Scan("", CsvDataSource("employee.csv", true, 1024, null), listOf1())),
+        "yello" to DataFrameImpl(Scan("", CsvDataSource("yellow_tripdata_2024-01.csv", true, 1024, null), listOf1()))
+    )
 
     val df = createDataFrame(parsedQuery as SqlSelect, tables)
 
@@ -2744,8 +2519,7 @@ class InMemoryDataSource(val schema: Schema, val data: List<RecordBatch>) : Data
     }
 
     override fun scan(projection: List<String>): Sequence<RecordBatch> {
-        val projectionIndices =
-            projection.map { name -> schema.fields.indexOfFirst { it.name == name } }
+        val projectionIndices = projection.map { name -> schema.fields.indexOfFirst { it.name == name } }
         return data.asSequence().map { batch ->
             RecordBatch(schema, projectionIndices.map { i -> batch.field(i) })
         }
@@ -2878,43 +2652,42 @@ fun main() {
 //    doitPlan(plan)
 //    println(plan.toString())
 
-    val result = executeQuery(
-        ".",
-        1,
-        "SELECT store_and_fwd_flag, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY store_and_fwd_flag"
-    )
-    printQueryResult(result.asSequence())
+//    val result = executeQuery(
+//        ".",
+//        1,
+//        "SELECT store_and_fwd_flag, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY store_and_fwd_flag"
+//    )
+//    printQueryResult(result.asSequence())
 
-//    val start = System.currentTimeMillis()
-//    val deferred = (1..2).map {month ->
-//        GlobalScope.async {
-//
-//            val sql = "SELECT passenger_count, MAX(max_fare) FROM tripdata " +
-//                    "GROUP BY passenger_count"
-//
-//            val start = System.currentTimeMillis()
-//            val result = executeQuery(".", month, sql)
-//            val duration = System.currentTimeMillis() - start
-//            println("Query against month $month took $duration ms")
-//            result
-//        }
-//    }
-//    val results: List<RecordBatch> = runBlocking {
-//        deferred.flatMap { it.await() }
-//    }
-//    val duration = System.currentTimeMillis() - start
-//    println("Collected ${results.size} batches in $duration ms")
-//
-//    val sql = "SELECT passenger_count, MAX(max_fare) " +
-//            "FROM tripdata " +
-//            "GROUP BY passenger_count"
-//
-//    val ctx = ExecutionContext()
-//    ctx.registerDataSource("tripdata", InMemoryDataSource(results.first().schema, results))
-//    val df = ctx.sql(sql)
-//    val result = ctx.execute(df)
+    val start = System.currentTimeMillis()
+    val deferred = (1..2).map {month ->
+        GlobalScope.async {
 
-//    printQueryResult(result)
+            val sql = "SELECT store_and_fwd_flag, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY store_and_fwd_flag";
+
+            val start = System.currentTimeMillis()
+            val result = executeQuery(".", month, sql)
+            val duration = System.currentTimeMillis() - start
+            println("Query against month $month took $duration ms")
+            result
+        }
+    }
+    val results: List<RecordBatch> = runBlocking {
+        deferred.flatMap { it.await() }
+    }
+    val duration = System.currentTimeMillis() - start
+    println("Collected ${results.size} batches in $duration ms")
+
+    val sql = "SELECT store_and_fwd_flag, MAX(max_amount) " +
+            "FROM tripdata " +
+            "GROUP BY store_and_fwd_flag"
+
+    val ctx = ExecutionContext()
+    ctx.registerDataSource("tripdata", InMemoryDataSource(results.first().schema, results))
+    val df = ctx.sql(sql)
+    val result = ctx.execute(df)
+
+    printQueryResult(result)
 }
 
 private fun doit(yellowCab: DataFrame) {
