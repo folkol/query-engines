@@ -1328,14 +1328,14 @@ private fun main() {
 }
 
 private fun executePartialQuery(month: Int): List<RecordBatch> {
-    val sql = "SELECT VendorID, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY VendorID"
     val partitionStart = System.currentTimeMillis()
-    val monthStr = String.format("%02d", month)
-    val filename = "ych-$monthStr.csv"
+
     val ctx = ExecutionContext()
-    ctx.registerCsv("tripdata", filename)
-    val df = ctx.sql(sql)
+    val monthStr = String.format("%02d", month)
+    ctx.registerCsv("tripdata", "yc-$monthStr.csv")
+    val df = ctx.sql("SELECT VendorID, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY VendorID")
     val result = ctx.execute(df).toList()
+
     val duration = System.currentTimeMillis() - partitionStart
     println("Query against month $month took $duration ms")
     return result
