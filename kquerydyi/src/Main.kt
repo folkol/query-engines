@@ -358,8 +358,6 @@ private class CsvDataSource(
 
 private interface DataFrame {
     fun project(expr: List<LogicalExpr>): DataFrame
-
-    //    fun filter(expr: LogicalExpr): DataFrame
     fun aggregate(groupBy: List<LogicalExpr>, aggregateExpr: List<AggregateExpr>): DataFrame
     fun schema(): Schema
     fun logicalPlan(): LogicalPlan
@@ -649,7 +647,6 @@ private class HashAggregateExec(
         }
 
         val outputBatch = RecordBatch(schema, root.fieldVectors.map { ArrowFieldVector(it) })
-        // println("HashAggregateExec output: \n${outputBatch.toCSV()}")
         return listOf1(outputBatch).asSequence()
     }
 
@@ -791,9 +788,7 @@ private class CastExpression(private val expr: Expression, private val dataType:
                         builder.set(it, null)
                     } else {
                         val castValue = when (vv) {
-                            is ByteArray -> String(vv).toDouble()
                             is String -> vv.toDouble()
-                            is Number -> vv.toDouble()
                             else -> throw IllegalStateException("Cannot cast value to Double: $vv")
                         }
                         builder.set(it, castValue)
@@ -1336,7 +1331,7 @@ private fun executePartialQuery(month: Int): List<RecordBatch> {
     val sql = "SELECT VendorID, MAX(CAST(fare_amount AS double)) AS max_amount FROM tripdata GROUP BY VendorID"
     val partitionStart = System.currentTimeMillis()
     val monthStr = String.format("%02d", month)
-    val filename = "yc-$monthStr.csv"
+    val filename = "ych-$monthStr.csv"
     val ctx = ExecutionContext()
     ctx.registerCsv("tripdata", filename)
     val df = ctx.sql(sql)
